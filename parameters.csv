@@ -1,0 +1,4 @@
+name,min,max,scale
+A,0.1,10.0,log
+B,0.01,5.0,log
+C,0.0,2.0,lin
