@@ -1,5 +1,9 @@
 {
-  "y_peak":  5.0,
-  "y_final": 1.0,
-  "decay":   0.5
+  "y_peak":     7.0,
+  "y_final":    1.0,
+  "decay":      0.4,
+  "t_peak":     5.0,
+  "rise_time":  2.5,
+  "t_settle":  14.0,
+  "undershoot": 0.7
 }

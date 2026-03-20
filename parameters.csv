@@ -1,4 +1,12 @@
 name,min,max,scale
-A,0.1,10.0,log
-B,0.01,5.0,log
-C,0.0,2.0,lin
+k_bind,0.5,50.0,log
+k_des,0.01,5.0,log
+k_inh,0.01,20.0,log
+k_adapt,0.01,20.0,log
+k_trans,0.5,100.0,log
+k_rel,0.1,20.0,log
+k_gain,0.1,200.0,log
+k_fb,0.1,20.0,log
+k_h_on,0.01,10.0,log
+k_h_off,0.005,2.0,log
+T_end,20.0,80.0,lin
