@@ -1,39 +1,24 @@
 """
-model.py — Closed-Loop PFAS Nanobiosensor with Slow Adaptation
+model.py — Closed-Loop PFAS Nanobiosensor with Burst Amplification
 
-Architecture: 4-state bioelectronic nanomicrosystem for PFAS detection.
+Architecture: 5-state bioelectronic nanomicrosystem for PFAS detection.
 
 States:
     s  : nanosensor surface occupancy (PFAS capture, 0–1 normalized)
     m  : microfluidic transport / buffered signal intermediate
     y  : electrochemical output (measured signal)
     h  : slow adaptation variable (receptor desensitization / refractory state)
+    b  : burst amplification factor (transient gain enhancement that decays)
 
 Physics:
     1. PFAS adsorbs to functionalized nanoparticle surface (s).
-       Fast binding k_bind; fast desorption k_des.
     2. Surface occupancy drives microfluidic transport layer (m).
-    3. Electrochemical output y rises with m and decays via adaptive feedback k_fb.
-    4. Output y activates slow inhibitor h (receptor desensitization analog).
-       h builds up slowly and inhibits the sensor surface (k_adapt).
-    5. Once y peaks, h suppresses s → m drops → y drops below y_final (undershoot).
-       h then decays slowly → s recovers → y returns to nonlinear steady state.
-
-This 4-state topology produces:
-    - Sharp transient peak (fast binding burst before inhibition)
-    - Specific peak timing (transport delay sets t_peak)
-    - Controlled post-peak decay (k_fb governs initial fall rate)
-    - Undershoot below y_final (slow adaptation depresses sensor)
-    - Eventual recovery to stable nonzero baseline (nonlinear equilibrium)
-
-Metrics:
-    y_peak     : peak output amplitude
-    y_final    : steady-state output (mean of last 2% of simulation)
-    decay      : exponential decay constant fitted immediately after peak
-    t_peak     : time of peak occurrence
-    rise_time  : time from 10% to 90% of y_peak (on the rising edge)
-    t_settle   : time at which y last exits the ±5% band around y_final
-    undershoot : minimum value of y after the peak (post-peak nadir)
+    3. Electrochemical output y rises with m, boosted by burst factor (1+b).
+       y decays via adaptive feedback k_fb.
+    4. Burst factor b starts high and decays as signal y rises.
+       This creates a large transient peak that fades to steady state.
+    5. Output y activates slow inhibitor h (receptor desensitization).
+       h suppresses sensor, creating undershoot below y_final.
 """
 
 import numpy as np
@@ -50,6 +35,8 @@ def run_model(params: dict) -> dict:
     k_fb     = params['k_fb']
     k_h_on   = params['k_h_on']
     k_h_off  = params['k_h_off']
+    b0       = params['b0']        # initial burst amplification level
+    k_b_dec  = params['k_b_dec']   # burst decay rate (driven by y)
     T_end    = params['T_end']
 
     # Fixed-step RK4 integration for speed
@@ -58,33 +45,35 @@ def run_model(params: dict) -> dict:
     t_eval = np.linspace(0.0, T_end, N + 1)
     y_out = np.empty(N + 1)
 
-    s, m, y, h = 0.0, 0.0, 0.0, 0.0
+    s, m, y, h, b = 0.0, 0.0, 0.0, 0.0, b0
     y_out[0] = 0.0
 
     for i in range(N):
-        # RK4 step
-        def deriv(s_, m_, y_, h_):
+        def deriv(s_, m_, y_, h_, b_):
             ds = k_bind * (1.0 - s_) - k_des * s_ - k_inh * y_ * s_ - k_adapt * h_ * s_
             dm = k_trans * s_ - k_rel * m_
-            dy = k_gain * m_ - k_fb * y_
+            dy = k_gain * m_ * (1.0 + b_) - k_fb * y_
             dh = k_h_on * y_ - k_h_off * h_
-            return ds, dm, dy, dh
+            db = -k_b_dec * y_ * b_   # burst decays as output rises
+            return ds, dm, dy, dh, db
 
-        k1s, k1m, k1y, k1h = deriv(s, m, y, h)
-        k2s, k2m, k2y, k2h = deriv(s + 0.5*dt*k1s, m + 0.5*dt*k1m, y + 0.5*dt*k1y, h + 0.5*dt*k1h)
-        k3s, k3m, k3y, k3h = deriv(s + 0.5*dt*k2s, m + 0.5*dt*k2m, y + 0.5*dt*k2y, h + 0.5*dt*k2h)
-        k4s, k4m, k4y, k4h = deriv(s + dt*k3s, m + dt*k3m, y + dt*k3y, h + dt*k3h)
+        k1 = deriv(s, m, y, h, b)
+        k2 = deriv(s+0.5*dt*k1[0], m+0.5*dt*k1[1], y+0.5*dt*k1[2], h+0.5*dt*k1[3], b+0.5*dt*k1[4])
+        k3 = deriv(s+0.5*dt*k2[0], m+0.5*dt*k2[1], y+0.5*dt*k2[2], h+0.5*dt*k2[3], b+0.5*dt*k2[4])
+        k4 = deriv(s+dt*k3[0], m+dt*k3[1], y+dt*k3[2], h+dt*k3[3], b+dt*k3[4])
 
-        s += dt/6.0 * (k1s + 2*k2s + 2*k3s + k4s)
-        m += dt/6.0 * (k1m + 2*k2m + 2*k3m + k4m)
-        y += dt/6.0 * (k1y + 2*k2y + 2*k3y + k4y)
-        h += dt/6.0 * (k1h + 2*k2h + 2*k3h + k4h)
+        s += dt/6.0 * (k1[0] + 2*k2[0] + 2*k3[0] + k4[0])
+        m += dt/6.0 * (k1[1] + 2*k2[1] + 2*k3[1] + k4[1])
+        y += dt/6.0 * (k1[2] + 2*k2[2] + 2*k3[2] + k4[2])
+        h += dt/6.0 * (k1[3] + 2*k2[3] + 2*k3[3] + k4[3])
+        b += dt/6.0 * (k1[4] + 2*k2[4] + 2*k3[4] + k4[4])
 
         # Clamp to prevent divergence
         s = max(0.0, min(s, 1.0))
         m = max(0.0, min(m, 1e4))
         y = max(0.0, min(y, 1e4))
         h = max(0.0, min(h, 1e4))
+        b = max(0.0, min(b, 1e4))
 
         y_out[i + 1] = y
 
