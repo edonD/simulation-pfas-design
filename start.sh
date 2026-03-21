@@ -50,10 +50,11 @@ case "$DISTRO" in
 esac
 
 # ── 2. Install base dependencies if missing ───────────────────────────────────
-log "Ensuring base dependencies (git, curl, unzip)..."
+# Note: AL2023 ships with curl-minimal which conflicts with full curl — skip it
+log "Ensuring base dependencies (git, unzip, tar)..."
 case "$DISTRO" in
     amzn)
-        sudo yum install -y -q git curl unzip tar
+        sudo dnf install -y -q git unzip tar 2>/dev/null || sudo yum install -y -q git unzip tar
         ;;
     ubuntu|debian)
         sudo apt-get install -y -qq git curl unzip tar build-essential
