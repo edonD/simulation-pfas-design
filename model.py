@@ -64,7 +64,7 @@ def run_model(params: dict) -> dict:
 
             # Second-order output dynamics with excess drag
             dz = wn2 * (target - y_) - two_zeta_wn * z_
-            drag = k_drag * max(y_ - K * x_, 0.0)
+            drag = k_drag * max(y_ - K, 0.0)
             dy = z_ - drag
 
             # Burst decay
