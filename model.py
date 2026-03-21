@@ -9,9 +9,11 @@ States:
     y  : electrochemical output (measured signal)
     h  : slow adaptation variable (receptor desensitization / refractory state)
 
-Based on the original model that achieved 5/7 specs. Enhancement:
+Based on the original model that achieved 5/7 specs. Enhancements:
     - h acts on sensor (k_adapt*h*s) for timing control
     - h also directly inhibits output (k_h_inh*h) for deeper undershoot
+    - h responds to y² (quadratic) so transient peak drives much stronger
+      adaptation than steady state, making undershoot selective
     - k_inh*y*s fast output→sensor inhibition for gain control
 """
 
@@ -45,7 +47,7 @@ def run_model(params: dict) -> dict:
             ds = k_bind * (1.0 - s_) - k_des * s_ - k_inh * y_ * s_ - k_adapt * h_ * s_
             dm = k_trans * s_ - k_rel * m_
             dy = k_gain * m_ - k_fb * y_ - k_h_inh * h_
-            dh = k_h_on * y_ - k_h_off * h_
+            dh = k_h_on * y_ * y_ - k_h_off * h_
             return ds, dm, dy, dh
 
         k1 = deriv(s, m, y, h)
