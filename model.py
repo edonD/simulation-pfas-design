@@ -1,23 +1,20 @@
 """
-model.py — Closed-Loop PFAS Nanobiosensor v11: Oscillator + Adaptive Target
+model.py — Closed-Loop PFAS Nanobiosensor v12: Oscillator + Transport Delay
 
 Architecture: 5-state bioelectronic nanomicrosystem.
 
 States:
-    x  : nanosensor input (first-order binding with output inhibition)
+    x  : nanosensor surface occupancy (first-order binding)
+    xd : delayed sensor signal (first-order transport lag)
     y  : electrochemical output (second-order oscillator)
     z  : output rate
-    b  : burst amplification (transient gain)
-    h  : slow adaptation (suppresses sensor target)
+    b  : burst amplification
 
 Key design:
-    - Second-order oscillator: ζ, ωn control timing and base damping
-    - Burst b: controls peak amplitude independent of steady state
-    - Adaptation h: builds up proportional to y, suppresses sensor target
-      → Accelerates post-peak decay (target drops as h grows)
-      → Deepens undershoot (lower target during peak-induced h accumulation)
-      → Recovers at steady state (h reaches equilibrium)
-    - Sensor inhibition k_inh*y*x: additional decay acceleration
+    - Transport delay xd introduces time lag τ_delay, shifting t_peak later
+    - Second-order oscillator with ζ, ωn for timing and oscillation
+    - Burst b for peak amplification
+    - 9 parameters, well-separated spec control
 """
 
 import numpy as np
@@ -26,15 +23,12 @@ import numpy as np
 def run_model(params: dict) -> dict:
     k_on    = params['k_on']
     k_off   = params['k_off']
-    k_inh   = params['k_inh']
+    tau_d   = params['tau_d']      # transport delay time constant
     wn      = params['wn']
     zeta    = params['zeta']
     K       = params['K']
     b0      = params['b0']
     k_bd    = params['k_bd']
-    k_ho    = params['k_ho']       # h activation rate
-    k_hd    = params['k_hd']       # h decay rate
-    k_ha    = params['k_ha']       # h → target suppression strength
     T_end   = params['T_end']
 
     N = 2000
@@ -42,20 +36,23 @@ def run_model(params: dict) -> dict:
     t_eval = np.linspace(0.0, T_end, N + 1)
     y_out = np.empty(N + 1)
 
-    x, y, z, b, h = 0.0, 0.0, 0.0, b0, 0.0
+    x, xd, y, z, b = 0.0, 0.0, 0.0, 0.0, b0
     y_out[0] = 0.0
 
     wn2 = wn * wn
     two_zeta_wn = 2.0 * zeta * wn
+    inv_tau = 1.0 / tau_d
 
     for i in range(N):
-        def deriv(x_, y_, z_, b_, h_):
-            # Sensor with output-dependent inhibition
-            dx = k_on * (1.0 - x_) - k_off * x_ - k_inh * y_ * x_
+        def deriv(x_, xd_, y_, z_, b_):
+            # Sensor binding
+            dx = k_on * (1.0 - x_) - k_off * x_
 
-            # Target with burst and adaptive suppression
-            h_supp = 1.0 / (1.0 + k_ha * h_)   # saturating suppression
-            target = K * (1.0 + b_) * x_ * h_supp
+            # Transport delay (first-order lag)
+            dxd = (x_ - xd_) * inv_tau
+
+            # Target with burst using delayed sensor
+            target = K * (1.0 + b_) * xd_
 
             # Second-order output dynamics
             dz = wn2 * (target - y_) - two_zeta_wn * z_
@@ -64,26 +61,23 @@ def run_model(params: dict) -> dict:
             # Burst decay
             db = -k_bd * b_
 
-            # Slow adaptation
-            dh = k_ho * y_ - k_hd * h_
+            return dx, dxd, dy, dz, db
 
-            return dx, dy, dz, db, dh
+        k1 = deriv(x, xd, y, z, b)
+        k2 = deriv(x+.5*dt*k1[0], xd+.5*dt*k1[1], y+.5*dt*k1[2], z+.5*dt*k1[3], b+.5*dt*k1[4])
+        k3 = deriv(x+.5*dt*k2[0], xd+.5*dt*k2[1], y+.5*dt*k2[2], z+.5*dt*k2[3], b+.5*dt*k2[4])
+        k4 = deriv(x+dt*k3[0], xd+dt*k3[1], y+dt*k3[2], z+dt*k3[3], b+dt*k3[4])
 
-        k1 = deriv(x, y, z, b, h)
-        k2 = deriv(x+.5*dt*k1[0], y+.5*dt*k1[1], z+.5*dt*k1[2], b+.5*dt*k1[3], h+.5*dt*k1[4])
-        k3 = deriv(x+.5*dt*k2[0], y+.5*dt*k2[1], z+.5*dt*k2[2], b+.5*dt*k2[3], h+.5*dt*k2[4])
-        k4 = deriv(x+dt*k3[0], y+dt*k3[1], z+dt*k3[2], b+dt*k3[3], h+dt*k3[4])
+        x  += dt/6.0 * (k1[0] + 2*k2[0] + 2*k3[0] + k4[0])
+        xd += dt/6.0 * (k1[1] + 2*k2[1] + 2*k3[1] + k4[1])
+        y  += dt/6.0 * (k1[2] + 2*k2[2] + 2*k3[2] + k4[2])
+        z  += dt/6.0 * (k1[3] + 2*k2[3] + 2*k3[3] + k4[3])
+        b  += dt/6.0 * (k1[4] + 2*k2[4] + 2*k3[4] + k4[4])
 
-        x += dt/6.0 * (k1[0] + 2*k2[0] + 2*k3[0] + k4[0])
-        y += dt/6.0 * (k1[1] + 2*k2[1] + 2*k3[1] + k4[1])
-        z += dt/6.0 * (k1[2] + 2*k2[2] + 2*k3[2] + k4[2])
-        b += dt/6.0 * (k1[3] + 2*k2[3] + 2*k3[3] + k4[3])
-        h += dt/6.0 * (k1[4] + 2*k2[4] + 2*k3[4] + k4[4])
-
-        x = max(0.0, min(x, 1.0))
-        y = max(0.0, y)
-        b = max(0.0, b)
-        h = max(0.0, h)
+        x  = max(0.0, min(x, 1.0))
+        xd = max(0.0, min(xd, 1.0))
+        y  = max(0.0, y)
+        b  = max(0.0, b)
 
         y_out[i + 1] = y
 
