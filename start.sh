@@ -64,12 +64,16 @@ ok "base dependencies ready"
 
 # ── 3. Python ─────────────────────────────────────────────────────────────────
 log "Setting up Python..."
-if ! command -v python3 &>/dev/null; then
-    case "$DISTRO" in
-        amzn)   sudo yum install -y -q python3 python3-pip ;;
-        ubuntu) sudo apt-get install -y -qq python3 python3-pip python3-venv ;;
-    esac
-fi
+case "$DISTRO" in
+    amzn)
+        sudo dnf install -y -q python3 python3-pip 2>/dev/null || sudo yum install -y -q python3 python3-pip
+        ;;
+    ubuntu|debian)
+        if ! command -v python3 &>/dev/null; then
+            sudo apt-get install -y -qq python3 python3-pip python3-venv
+        fi
+        ;;
+esac
 python3 -m pip install --upgrade pip setuptools wheel --quiet
 ok "Python ready  ($(python3 --version))"
 
