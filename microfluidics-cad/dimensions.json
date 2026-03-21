@@ -1,0 +1,51 @@
+{
+  "chip": {
+    "length": 5.0,
+    "width": 3.5,
+    "substrate_thickness": 0.5,
+    "channel_layer_thickness": 1.0,
+    "lid_thickness": 0.2,
+    "edge_margin": 0.2
+  },
+  "channels": {
+    "width": 0.2,
+    "depth": 0.1,
+    "wall_spacing": 0.15,
+    "u_turn_radius": 0.2,
+    "target_path_length": 20.0
+  },
+  "sensor_chamber": {
+    "length": 2.0,
+    "width": 1.5,
+    "depth": 0.1,
+    "x_offset": 0.3,
+    "y_offset": 1.0
+  },
+  "ports": {
+    "inlet_diameter": 0.5,
+    "outlet_diameter": 0.5,
+    "inlet_x": 0.6,
+    "inlet_y": 1.75,
+    "outlet_x": 4.4,
+    "outlet_y": 1.75
+  },
+  "electrodes": {
+    "n_fingers": 6,
+    "finger_length": 1.2,
+    "finger_width": 0.08,
+    "finger_gap": 0.12,
+    "thickness": 0.005,
+    "pad_width": 0.4,
+    "pad_height": 0.3,
+    "trace_width": 0.08
+  },
+  "bond_pads": {
+    "n_pads": 4,
+    "pad_width": 0.4,
+    "pad_height": 0.3,
+    "x_position": 4.5,
+    "y_start": 0.5,
+    "y_spacing": 0.7,
+    "labels": ["VDD", "GND", "OUT", "CLK"]
+  }
+}
