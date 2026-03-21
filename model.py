@@ -40,6 +40,7 @@ def run_model(params: dict) -> dict:
     K       = params['K']          # steady-state gain
     b0      = params['b0']         # initial burst level
     k_bd    = params['k_bd']       # burst decay rate
+    k_nl    = params['k_nl']       # nonlinear damping coefficient
     T_end   = params['T_end']
 
     N = 2000
@@ -62,7 +63,7 @@ def run_model(params: dict) -> dict:
             target = K * (1.0 + b_) * x_
 
             # Second-order output dynamics with excess drag
-            dz = wn2 * (target - y_) - two_zeta_wn * z_
+            dz = wn2 * (target - y_) - two_zeta_wn * (1.0 + k_nl * y_) * z_
             dy = z_
 
             # Burst decay

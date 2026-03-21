@@ -1,9 +1,10 @@
 name,min,max,scale
 k_on,0.03,0.15,log
 k_off,0.003,0.05,log
-wn,0.5,1.5,log
-zeta,0.3,0.65,log
+wn,0.4,1.5,log
+zeta,0.15,0.6,log
 K,0.8,3.0,log
 b0,20.0,200.0,log
-k_bd,0.3,2.0,log
+k_bd,0.2,2.0,log
+k_nl,0.001,0.5,log
 T_end,18.0,30.0,lin
