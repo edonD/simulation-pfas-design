@@ -40,6 +40,7 @@ def run_model(params: dict) -> dict:
     K       = params['K']          # steady-state gain
     b0      = params['b0']         # initial burst level
     k_bd    = params['k_bd']       # burst decay rate
+    k_inh   = params['k_inh']     # output→sensor inhibition (accelerates decay)
     T_end   = params['T_end']
 
     N = 2000
@@ -55,8 +56,8 @@ def run_model(params: dict) -> dict:
 
     for i in range(N):
         def deriv(x_, y_, z_, b_):
-            # Sensor: first-order binding
-            dx = k_on * (1.0 - x_) - k_off * x_
+            # Sensor: first-order binding with output-dependent inhibition
+            dx = k_on * (1.0 - x_) - k_off * x_ - k_inh * y_ * x_
 
             # Target equilibrium with burst
             target = K * (1.0 + b_) * x_
