@@ -88,17 +88,15 @@ ok "research packages up to date"
 
 # ── 5. Node.js ────────────────────────────────────────────────────────────────
 log "Setting up Node.js..."
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
 if ! command -v node &>/dev/null; then
     log "Installing Node.js via nvm..."
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-    export NVM_DIR="$HOME/.nvm"
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-    nvm install --lts --silent
-    nvm use --lts --silent
-else
-    # Make sure nvm is loaded if it exists
-    export NVM_DIR="$HOME/.nvm"
-    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    nvm install --lts
+    nvm use --lts
 fi
 ok "Node ready  ($(node --version))"
 
