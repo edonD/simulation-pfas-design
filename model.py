@@ -75,20 +75,20 @@ def run_model(params: dict) -> dict:
         [0.0, T_end],
         [0.0, 0.0, 0.0, 0.0],
         method='RK45',
-        max_step=T_end / 3000.0,
+        max_step=T_end / 500.0,
         dense_output=True,
-        rtol=1e-8,
-        atol=1e-10,
+        rtol=1e-6,
+        atol=1e-8,
     )
 
-    N = 5000
+    N = 2000
     t_eval = np.linspace(0.0, T_end, N)
     states = sol.sol(t_eval)
     y_out  = states[2]
 
     # ── Amplitude ──────────────────────────────────────────────────────────────
     y_peak  = float(np.max(y_out))
-    y_final = float(np.mean(y_out[int(0.98 * N):]))   # mean of last 2%
+    y_final = float(np.mean(y_out[int(0.98 * N):]))   # mean of last 2%   # mean of last 2%
 
     idx_peak = int(np.argmax(y_out))
 
