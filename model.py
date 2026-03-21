@@ -1,5 +1,5 @@
 """
-model.py — Closed-Loop PFAS Nanobiosensor v6: Dual Adaptation
+model.py — Closed-Loop PFAS Nanobiosensor v7: Threshold Adaptation
 
 Architecture: 5-state bioelectronic nanomicrosystem for PFAS detection.
 
@@ -8,38 +8,39 @@ States:
     m  : microfluidic transport / buffered signal
     y  : electrochemical output (measured signal)
     h  : slow adaptation (sensor suppression, controls timing)
-    g  : medium adaptation (output inhibition, controls undershoot depth)
+    g  : threshold adaptation (output inhibition, active only during peak)
 
 Key design:
-    - h is SLOW (tiny k_hd): suppresses sensor s, handles t_peak/rise_time/t_settle
-    - g is MEDIUM-FAST (moderate k_gd): inhibits output y directly, handles
-      undershoot depth independently of y_final
-    - g_ss = k_go*y_ss/k_gd is moderate, so k_gi*g_ss doesn't destroy steady state
-    - Sensor inhibition (k_inh, k_adapt, k_ho, k_hd) fixed at known-good values
+    - h handles timing: slow sensor suppression (same as original 5/7 model)
+    - g is THRESHOLD-ACTIVATED: dg = k_go * max(y-y_ref, 0)² - k_gd * g
+    - At steady state (y_ss < y_ref): g_ss = 0, no effect on y_final
+    - During peak (y >> y_ref): g accumulates, creates undershoot via k_gi*g
+    - This cleanly decouples undershoot depth from steady-state level
 """
 
 import numpy as np
 
 
 def run_model(params: dict) -> dict:
-    # Fixed sensor/timing params (from 5/7 solution)
+    # Fixed sensor params (from 5/7 solution)
     k_bind  = 0.5
     k_des   = 0.034
     k_inh   = 4.84
-    k_adapt = params['k_adapt']
-    k_ho    = params['k_ho']      # h activation rate
-    k_hd    = params['k_hd']      # h decay rate (very slow)
 
-    # Free gain params
+    # Free params for timing/gain
+    k_adapt = params['k_adapt']
     k_trans = params['k_trans']
     k_rel   = params['k_rel']
     k_gain  = params['k_gain']
     k_fb    = params['k_fb']
+    k_ho    = params['k_ho']
+    k_hd    = params['k_hd']
 
-    # Second adaptation (medium-fast, output inhibition)
+    # Threshold adaptation for undershoot
     k_gi    = params['k_gi']      # g→output inhibition strength
-    k_go    = params['k_go']      # g activation rate (y→g)
-    k_gd    = params['k_gd']      # g decay rate (medium-fast)
+    k_go    = params['k_go']      # g activation rate
+    k_gd    = params['k_gd']      # g decay rate
+    y_ref   = params['y_ref']     # activation threshold
 
     T_end   = params['T_end']
 
@@ -57,7 +58,11 @@ def run_model(params: dict) -> dict:
             dm = k_trans * s_ - k_rel * m_
             dy = k_gain * m_ - k_fb * y_ - k_gi * g_
             dh = k_ho * y_ - k_hd * h_
-            dg = k_go * y_ - k_gd * g_
+
+            # Threshold-activated adaptation: only active during peak
+            excess = max(y_ - y_ref, 0.0)
+            dg = k_go * excess * excess - k_gd * g_
+
             return ds, dm, dy, dh, dg
 
         k1 = deriv(s, m, y, h, g)
