@@ -80,6 +80,12 @@ def run_model(params: dict) -> dict:
         y += dt/6.0 * (k1y + 2*k2y + 2*k3y + k4y)
         h += dt/6.0 * (k1h + 2*k2h + 2*k3h + k4h)
 
+        # Clamp to prevent divergence
+        s = max(0.0, min(s, 1.0))
+        m = max(0.0, min(m, 1e4))
+        y = max(0.0, min(y, 1e4))
+        h = max(0.0, min(h, 1e4))
+
         y_out[i + 1] = y
 
     N1 = N + 1
