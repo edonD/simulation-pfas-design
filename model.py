@@ -1,46 +1,51 @@
 """
-model.py — Closed-Loop PFAS Nanobiosensor v7: Threshold Adaptation
+model.py — Closed-Loop PFAS Nanobiosensor v8: Dual Sensor + Burst
 
-Architecture: 5-state bioelectronic nanomicrosystem for PFAS detection.
+Architecture: 6-state bioelectronic nanomicrosystem for PFAS detection.
 
 States:
-    s  : nanosensor surface occupancy (0–1)
+    s1 : primary nanosensor (fast, inhibited by y and h)
+    s2 : secondary nanosensor (slow, uninhibited — provides steady-state baseline)
     m  : microfluidic transport / buffered signal
-    y  : electrochemical output (measured signal)
-    h  : slow adaptation (sensor suppression, controls timing)
-    g  : threshold adaptation (output inhibition, active only during peak)
+    y  : electrochemical output
+    h  : slow adaptation (sensor suppression on s1)
+    b  : burst amplification (transient gain)
 
 Key design:
-    - h handles timing: slow sensor suppression (same as original 5/7 model)
-    - g is THRESHOLD-ACTIVATED: dg = k_go * max(y-y_ref, 0)² - k_gd * g
-    - At steady state (y_ss < y_ref): g_ss = 0, no effect on y_final
-    - During peak (y >> y_ref): g accumulates, creates undershoot via k_gi*g
-    - This cleanly decouples undershoot depth from steady-state level
+    - s1: fast binding, strongly inhibited → creates transient peak and overshoot
+    - s2: slow binding, NO inhibition → rises slowly to s2_ss, contributes to y_final
+    - Burst b: amplifies early signal for y_peak control
+    - s2 barely contributes during peak (still rising) but fully at steady state
+    - This raises y_final relative to undershoot, fixing the ratio
 """
 
 import numpy as np
 
 
 def run_model(params: dict) -> dict:
-    # Fixed sensor params (from 5/7 solution)
-    k_bind  = 0.5
-    k_des   = 0.034
+    # Primary sensor (fixed good values)
+    k_bind1 = 0.5
+    k_des1  = 0.034
     k_inh   = 4.84
-
-    # Free params for timing/gain
     k_adapt = params['k_adapt']
+
+    # Secondary sensor (slow, uninhibited)
+    k_bind2 = params['k_bind2']
+    k_mix   = params['k_mix']       # s2 contribution weight
+
+    # Transport and output
     k_trans = params['k_trans']
     k_rel   = params['k_rel']
     k_gain  = params['k_gain']
     k_fb    = params['k_fb']
+
+    # Adaptation
     k_ho    = params['k_ho']
     k_hd    = params['k_hd']
 
-    # Threshold adaptation for undershoot
-    k_gi    = params['k_gi']      # g→output inhibition strength
-    k_go    = params['k_go']      # g activation rate
-    k_gd    = params['k_gd']      # g decay rate
-    y_ref   = params['y_ref']     # activation threshold
+    # Burst
+    b0      = params['b0']
+    k_bd    = params['k_bd']
 
     T_end   = params['T_end']
 
@@ -49,38 +54,49 @@ def run_model(params: dict) -> dict:
     t_eval = np.linspace(0.0, T_end, N + 1)
     y_out = np.empty(N + 1)
 
-    s, m, y, h, g = 0.0, 0.0, 0.0, 0.0, 0.0
+    s1, s2, m, y, h, b = 0.0, 0.0, 0.0, 0.0, 0.0, b0
     y_out[0] = 0.0
 
     for i in range(N):
-        def deriv(s_, m_, y_, h_, g_):
-            ds = k_bind * (1.0 - s_) - k_des * s_ - k_inh * y_ * s_ - k_adapt * h_ * s_
-            dm = k_trans * s_ - k_rel * m_
-            dy = k_gain * m_ - k_fb * y_ - k_gi * g_
+        def deriv(s1_, s2_, m_, y_, h_, b_):
+            # Primary sensor: fast binding with inhibition
+            ds1 = k_bind1 * (1.0 - s1_) - k_des1 * s1_ - k_inh * y_ * s1_ - k_adapt * h_ * s1_
+
+            # Secondary sensor: slow binding, no inhibition
+            ds2 = k_bind2 * (1.0 - s2_)
+
+            # Transport: both sensors contribute
+            dm = k_trans * (s1_ + k_mix * s2_) - k_rel * m_
+
+            # Output with burst amplification
+            dy = k_gain * m_ * (1.0 + b_) - k_fb * y_
+
+            # Slow adaptation
             dh = k_ho * y_ - k_hd * h_
 
-            # Threshold-activated adaptation: only active during peak
-            excess = max(y_ - y_ref, 0.0)
-            dg = k_go * excess * excess - k_gd * g_
+            # Burst decay
+            db = -k_bd * b_
 
-            return ds, dm, dy, dh, dg
+            return ds1, ds2, dm, dy, dh, db
 
-        k1 = deriv(s, m, y, h, g)
-        k2 = deriv(s+0.5*dt*k1[0], m+0.5*dt*k1[1], y+0.5*dt*k1[2], h+0.5*dt*k1[3], g+0.5*dt*k1[4])
-        k3 = deriv(s+0.5*dt*k2[0], m+0.5*dt*k2[1], y+0.5*dt*k2[2], h+0.5*dt*k2[3], g+0.5*dt*k2[4])
-        k4 = deriv(s+dt*k3[0], m+dt*k3[1], y+dt*k3[2], h+dt*k3[3], g+dt*k3[4])
+        k1 = deriv(s1, s2, m, y, h, b)
+        k2 = deriv(s1+.5*dt*k1[0], s2+.5*dt*k1[1], m+.5*dt*k1[2], y+.5*dt*k1[3], h+.5*dt*k1[4], b+.5*dt*k1[5])
+        k3 = deriv(s1+.5*dt*k2[0], s2+.5*dt*k2[1], m+.5*dt*k2[2], y+.5*dt*k2[3], h+.5*dt*k2[4], b+.5*dt*k2[5])
+        k4 = deriv(s1+dt*k3[0], s2+dt*k3[1], m+dt*k3[2], y+dt*k3[3], h+dt*k3[4], b+dt*k3[5])
 
-        s += dt/6.0 * (k1[0] + 2*k2[0] + 2*k3[0] + k4[0])
-        m += dt/6.0 * (k1[1] + 2*k2[1] + 2*k3[1] + k4[1])
-        y += dt/6.0 * (k1[2] + 2*k2[2] + 2*k3[2] + k4[2])
-        h += dt/6.0 * (k1[3] + 2*k2[3] + 2*k3[3] + k4[3])
-        g += dt/6.0 * (k1[4] + 2*k2[4] + 2*k3[4] + k4[4])
+        s1 += dt/6.0 * (k1[0] + 2*k2[0] + 2*k3[0] + k4[0])
+        s2 += dt/6.0 * (k1[1] + 2*k2[1] + 2*k3[1] + k4[1])
+        m  += dt/6.0 * (k1[2] + 2*k2[2] + 2*k3[2] + k4[2])
+        y  += dt/6.0 * (k1[3] + 2*k2[3] + 2*k3[3] + k4[3])
+        h  += dt/6.0 * (k1[4] + 2*k2[4] + 2*k3[4] + k4[4])
+        b  += dt/6.0 * (k1[5] + 2*k2[5] + 2*k3[5] + k4[5])
 
-        s = max(0.0, min(s, 1.0))
-        m = max(0.0, min(m, 1e4))
-        y = max(0.0, min(y, 1e4))
-        h = max(0.0, min(h, 1e4))
-        g = max(0.0, min(g, 1e4))
+        s1 = max(0.0, min(s1, 1.0))
+        s2 = max(0.0, min(s2, 1.0))
+        m  = max(0.0, min(m, 1e4))
+        y  = max(0.0, min(y, 1e4))
+        h  = max(0.0, min(h, 1e4))
+        b  = max(0.0, min(b, 1e4))
 
         y_out[i + 1] = y
 
