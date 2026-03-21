@@ -244,3 +244,92 @@ The two critical breakthroughs:
 
 ============================================================
 ```
+
+---
+
+## 12. Physical Device — What It Looks Like and How to Build It
+
+The math model maps directly to a real physical chip. Here's what each equation becomes in hardware.
+
+### Device Layout (Top View)
+
+![Device Layout](plots/07_device_layout.png)
+
+The chip is approximately **5 mm x 3.5 mm** — small enough to implant subcutaneously. It has three zones laid out left to right:
+
+| Zone | Model State | Physical Component | Size |
+|------|------------|-------------------|------|
+| **Nanosensor Array** | x(t) | Gold interdigitated electrodes coated with PFAS-selective MIP nanoparticles | ~1.5 mm x 2.5 mm |
+| **Microfluidic Delay Channel** | xd(t) | Serpentine PDMS channel providing the 2-second transport lag | ~1.5 mm x 2.5 mm |
+| **Readout Electronics** | y(t), z(t), b(t) | CMOS ASIC implementing the 2nd-order oscillator + burst circuit | ~1.5 mm x 2.5 mm |
+
+PFAS-contaminated fluid enters from the left, flows over the sensor, through the delay channel, and the electrical signal is processed by the readout chip on the right.
+
+### Cross-Section (Side View)
+
+![Cross Section](plots/08_cross_section.png)
+
+From bottom to top, the sensor stack is:
+
+| Layer | Material | Thickness | Purpose |
+|-------|----------|-----------|---------|
+| Substrate | Silicon or glass | 500 um | Mechanical support |
+| Passivation | SiO2 (PECVD) | 200 nm | Electrical isolation |
+| Electrodes | Ti/Au (adhesion/conductor) | 10/100 nm | Three-electrode electrochemical cell (WE, RE, CE) |
+| Linker | Thiol SAM | ~2 nm | Anchors nanoparticles to gold surface |
+| Sensing layer | MIP nanoparticles | ~50 nm dia. | Molecularly imprinted polymers with PFAS-shaped cavities |
+| Channel | PDMS walls | 50-100 um height | Contains fluid, defines flow path |
+| Fluid | Blood plasma / interstitial fluid | fills channel | Carries PFAS molecules to sensor |
+
+**How sensing works:** PFAS molecules (the cyan chains with fluorine atoms) flow in the fluid, diffuse down, and bind into the MIP nanoparticle cavities. This changes the electrochemical impedance between the gold electrodes, generating the signal x(t). The signal then passes through the serpentine delay channel (producing xd), and the readout ASIC processes it into the final output y(t).
+
+### Fabrication Process (8 Steps)
+
+![Fabrication Process](plots/09_fabrication_process.png)
+
+| Step | Process | Equipment Needed | Time |
+|------|---------|-----------------|------|
+| 1. **Substrate** | Clean Si wafer (piranha etch + O2 plasma) | Wet bench, plasma asher | 1 hr |
+| 2. **Insulation** | Deposit 200 nm SiO2 by PECVD | PECVD reactor | 30 min |
+| 3. **Electrodes** | Spin photoresist, UV expose electrode pattern, e-beam evaporate Ti/Au, liftoff | Mask aligner, e-beam evaporator | 4 hr |
+| 4. **Microfluidics** | Spin SU-8 on separate wafer to make mold, cast PDMS, cure at 65C, peel off, punch inlet/outlet, O2 plasma bond to chip | Spin coater, oven, plasma bonder | 6 hr |
+| 5. **SAM Layer** | Immerse chip in thiol solution (e.g., 11-mercaptoundecanoic acid in ethanol) | Fume hood, beaker | 12-24 hr |
+| 6. **Nanoparticles** | Synthesize PFAS-imprinted MIP nanoparticles separately, then drop-cast or electrodeposit onto electrode surface | Synthesis setup, potentiostat | 4 hr |
+| 7. **ASIC Bonding** | Wire-bond pre-fabricated CMOS readout die to bond pads | Wire bonder | 1 hr |
+| 8. **Packaging** | Coat everything except sensor window in Parylene-C (biocompatible), sterilize with ethylene oxide | Parylene coater, EtO sterilizer | 8 hr |
+
+**Total fabrication time:** ~2-3 days (including SAM incubation overnight)
+
+### How Each Model Parameter Maps to Hardware
+
+| Model Parameter | Value | Physical Control |
+|----------------|-------|-----------------|
+| `k_on` = 0.121 | PFAS binding rate | Set by MIP cavity density and affinity (synthesis recipe) |
+| `k_off` = 0.004 | PFAS desorption rate | Set by MIP-PFAS binding strength (crosslinker ratio) |
+| `tau_d` = 2.0 s | Transport delay | Set by serpentine channel length and flow rate (channel is ~20 mm long at 10 uL/min) |
+| `wn` = 0.807 rad/s | Oscillator frequency | Set by R and C values in the ASIC analog filter |
+| `zeta` = 0.46 | Damping ratio | Set by feedback resistor in the ASIC |
+| `K` = 1.194 | Electrochemical gain | Set by transimpedance amplifier gain (TIA) |
+| `b0` = 188 | Initial burst | Set by DAC initial voltage in burst circuit |
+| `k_bd` = 0.569 | Burst decay | Set by RC time constant of burst discharge circuit |
+
+### Bill of Materials (Estimated)
+
+| Component | Source | Approx. Cost |
+|-----------|--------|-------------|
+| Si wafer (4-inch, 10 chips) | University cleanroom | $50/wafer |
+| Ti/Au target (e-beam) | Kurt J. Lesker | $200 (shared) |
+| SU-8 photoresist | Kayaku/MicroChem | $100/bottle |
+| PDMS (Sylgard 184) | Dow Corning | $80/kit |
+| Thiol (11-MUA) | Sigma-Aldrich | $40 |
+| MIP nanoparticle reagents | Sigma-Aldrich | $150 |
+| CMOS readout die (if custom) | MOSIS/Europractice MPW run | $2,000-5,000 |
+| Parylene-C | SCS Coatings | $100 |
+| **Total per chip (R&D prototype)** | | **~$300-500** |
+| **Total per chip (volume production)** | | **~$5-15** |
+
+### Where to Fabricate
+
+- **University cleanroom**: Most steps can be done in a standard micro/nanofab facility (e.g., Stanford SNF, MIT MTL, any university with MEMS capability)
+- **PDMS soft lithography**: Can be done on a benchtop with a hot plate and plasma cleaner
+- **CMOS ASIC**: Submit to a multi-project wafer (MPW) service like MOSIS, Europractice, or use an off-the-shelf potentiostat IC (e.g., LMP91000 from TI) for the readout
