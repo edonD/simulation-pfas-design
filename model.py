@@ -1,52 +1,45 @@
 """
-model.py — Closed-Loop PFAS Nanobiosensor v8: Dual Sensor + Burst
+model.py — Closed-Loop PFAS Nanobiosensor v9: Second-Order Oscillator + Burst
 
-Architecture: 6-state bioelectronic nanomicrosystem for PFAS detection.
+Architecture: 4-state bioelectronic nanomicrosystem.
 
 States:
-    s1 : primary nanosensor (fast, inhibited by y and h)
-    s2 : secondary nanosensor (slow, uninhibited — provides steady-state baseline)
-    m  : microfluidic transport / buffered signal
-    y  : electrochemical output
-    h  : slow adaptation (sensor suppression on s1)
-    b  : burst amplification (transient gain)
+    x  : nanosensor input signal (first-order binding kinetics)
+    y  : electrochemical output (second-order dynamics)
+    z  : output rate (velocity of y)
+    b  : burst amplification (transient gain boost)
 
-Key design:
-    - s1: fast binding, strongly inhibited → creates transient peak and overshoot
-    - s2: slow binding, NO inhibition → rises slowly to s2_ss, contributes to y_final
-    - Burst b: amplifies early signal for y_peak control
-    - s2 barely contributes during peak (still rising) but fully at steady state
-    - This raises y_final relative to undershoot, fixing the ratio
+Physics:
+    1. Sensor x: first-order PFAS adsorption with time constant 1/(k_on+k_off)
+    2. Output y: second-order underdamped dynamics driven by K*(1+b)*x
+       - Natural frequency wn controls timing
+       - Damping ratio zeta controls oscillation depth (undershoot)
+    3. Burst b: exponentially decaying gain boost
+       - Creates high initial equilibrium → large peak
+       - As b decays, equilibrium drops → system oscillates around y_final
+       - Undershoot naturally occurs as second-order overshoot on decay
+
+Spec decoupling:
+    - y_peak: K * b0 * (overshoot factor)
+    - y_final: K * x_ss
+    - decay: ζ*ωn + k_bd
+    - t_peak: sensor τ + 1/ωn
+    - rise_time: sensor τ
+    - t_settle: 4/(ζ*ωn)
+    - undershoot: exp(-2ζπ/√(1-ζ²)) × y_final
 """
 
 import numpy as np
 
 
 def run_model(params: dict) -> dict:
-    # Primary sensor (fixed good values)
-    k_bind1 = 0.5
-    k_des1  = 0.034
-    k_inh   = 4.84
-    k_adapt = params['k_adapt']
-
-    # Secondary sensor (slow, uninhibited)
-    k_bind2 = params['k_bind2']
-    k_mix   = params['k_mix']       # s2 contribution weight
-
-    # Transport and output
-    k_trans = params['k_trans']
-    k_rel   = params['k_rel']
-    k_gain  = params['k_gain']
-    k_fb    = params['k_fb']
-
-    # Adaptation
-    k_ho    = params['k_ho']
-    k_hd    = params['k_hd']
-
-    # Burst
-    b0      = params['b0']
-    k_bd    = params['k_bd']
-
+    k_on    = params['k_on']       # sensor binding rate
+    k_off   = params['k_off']      # sensor unbinding rate
+    wn      = params['wn']         # natural frequency
+    zeta    = params['zeta']       # damping ratio (<1 for underdamped)
+    K       = params['K']          # steady-state gain
+    b0      = params['b0']         # initial burst level
+    k_bd    = params['k_bd']       # burst decay rate
     T_end   = params['T_end']
 
     N = 2000
@@ -54,49 +47,42 @@ def run_model(params: dict) -> dict:
     t_eval = np.linspace(0.0, T_end, N + 1)
     y_out = np.empty(N + 1)
 
-    s1, s2, m, y, h, b = 0.0, 0.0, 0.0, 0.0, 0.0, b0
+    x, y, z, b = 0.0, 0.0, 0.0, b0
     y_out[0] = 0.0
 
+    wn2 = wn * wn
+    two_zeta_wn = 2.0 * zeta * wn
+
     for i in range(N):
-        def deriv(s1_, s2_, m_, y_, h_, b_):
-            # Primary sensor: fast binding with inhibition
-            ds1 = k_bind1 * (1.0 - s1_) - k_des1 * s1_ - k_inh * y_ * s1_ - k_adapt * h_ * s1_
+        def deriv(x_, y_, z_, b_):
+            # Sensor: first-order binding
+            dx = k_on * (1.0 - x_) - k_off * x_
 
-            # Secondary sensor: slow binding, no inhibition
-            ds2 = k_bind2 * (1.0 - s2_)
+            # Target equilibrium with burst
+            target = K * (1.0 + b_) * x_
 
-            # Transport: both sensors contribute
-            dm = k_trans * (s1_ + k_mix * s2_) - k_rel * m_
-
-            # Output with burst amplification
-            dy = k_gain * m_ * (1.0 + b_) - k_fb * y_
-
-            # Slow adaptation
-            dh = k_ho * y_ - k_hd * h_
+            # Second-order output dynamics
+            dz = wn2 * (target - y_) - two_zeta_wn * z_
+            dy = z_
 
             # Burst decay
             db = -k_bd * b_
 
-            return ds1, ds2, dm, dy, dh, db
+            return dx, dy, dz, db
 
-        k1 = deriv(s1, s2, m, y, h, b)
-        k2 = deriv(s1+.5*dt*k1[0], s2+.5*dt*k1[1], m+.5*dt*k1[2], y+.5*dt*k1[3], h+.5*dt*k1[4], b+.5*dt*k1[5])
-        k3 = deriv(s1+.5*dt*k2[0], s2+.5*dt*k2[1], m+.5*dt*k2[2], y+.5*dt*k2[3], h+.5*dt*k2[4], b+.5*dt*k2[5])
-        k4 = deriv(s1+dt*k3[0], s2+dt*k3[1], m+dt*k3[2], y+dt*k3[3], h+dt*k3[4], b+dt*k3[5])
+        k1 = deriv(x, y, z, b)
+        k2 = deriv(x+.5*dt*k1[0], y+.5*dt*k1[1], z+.5*dt*k1[2], b+.5*dt*k1[3])
+        k3 = deriv(x+.5*dt*k2[0], y+.5*dt*k2[1], z+.5*dt*k2[2], b+.5*dt*k2[3])
+        k4 = deriv(x+dt*k3[0], y+dt*k3[1], z+dt*k3[2], b+dt*k3[3])
 
-        s1 += dt/6.0 * (k1[0] + 2*k2[0] + 2*k3[0] + k4[0])
-        s2 += dt/6.0 * (k1[1] + 2*k2[1] + 2*k3[1] + k4[1])
-        m  += dt/6.0 * (k1[2] + 2*k2[2] + 2*k3[2] + k4[2])
-        y  += dt/6.0 * (k1[3] + 2*k2[3] + 2*k3[3] + k4[3])
-        h  += dt/6.0 * (k1[4] + 2*k2[4] + 2*k3[4] + k4[4])
-        b  += dt/6.0 * (k1[5] + 2*k2[5] + 2*k3[5] + k4[5])
+        x += dt/6.0 * (k1[0] + 2*k2[0] + 2*k3[0] + k4[0])
+        y += dt/6.0 * (k1[1] + 2*k2[1] + 2*k3[1] + k4[1])
+        z += dt/6.0 * (k1[2] + 2*k2[2] + 2*k3[2] + k4[2])
+        b += dt/6.0 * (k1[3] + 2*k2[3] + 2*k3[3] + k4[3])
 
-        s1 = max(0.0, min(s1, 1.0))
-        s2 = max(0.0, min(s2, 1.0))
-        m  = max(0.0, min(m, 1e4))
-        y  = max(0.0, min(y, 1e4))
-        h  = max(0.0, min(h, 1e4))
-        b  = max(0.0, min(b, 1e4))
+        x = max(0.0, min(x, 1.0))
+        y = max(0.0, y)
+        b = max(0.0, b)
 
         y_out[i + 1] = y
 
