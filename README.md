@@ -333,3 +333,132 @@ From bottom to top, the sensor stack is:
 - **University cleanroom**: Most steps can be done in a standard micro/nanofab facility (e.g., Stanford SNF, MIT MTL, any university with MEMS capability)
 - **PDMS soft lithography**: Can be done on a benchtop with a hot plate and plasma cleaner
 - **CMOS ASIC**: Submit to a multi-project wafer (MPW) service like MOSIS, Europractice, or use an off-the-shelf potentiostat IC (e.g., LMP91000 from TI) for the readout
+
+---
+
+## 13. Limitations — What This Project Does NOT Solve
+
+The simulation works. The CAD model is fabrication-ready. But building a real PFAS biosensor that works in the body has unsolved science problems. Here's an honest assessment.
+
+### Problem 1: The sensing chemistry doesn't exist yet
+
+Our model says "MIP nanoparticles with PFAS-selective binding sites" — but no one has demonstrated a recognition element that reliably detects PFAS in blood for more than a few hours.
+
+**What's been tried:**
+
+| Approach | Best LOD (buffer) | Best LOD (blood/serum) | Stability in vivo | Key group |
+|----------|-------------------|----------------------|-------------------|-----------|
+| **MIP nanoparticles** | 0.05-1 ng/mL | 1-50 ng/mL | Months (material only, no in-vivo sensor demo) | Piletsky (Birmingham), Yoshida (AIST Japan) |
+| **DNA aptamers** | 0.1-2 ng/mL | 1-10 ng/mL | Hours-days (nuclease degradation) | Springs/Sikes (MIT), Yingfu Li (McMaster) |
+| **Antibodies** | 0.01-0.1 ng/mL | 0.1-1 ng/mL | Days-weeks | Commercial (Bio-Techne) |
+
+**The fundamental difficulty:** PFAS molecules are simple fluorinated chains with no complex 3D shape. MIP cavities struggle to tell PFOS from PFOA from PFHxS — they all look like fluorinated rods. The best selectivity ratios are only 2-5x between congeners.
+
+**Most promising path forward:** DNA aptamers with chemical modifications (2'-fluoro or 2'-O-methyl nucleotides) to resist nuclease degradation. The MIT group (Springs/Sikes) demonstrated aptamers with Kd ~30-50 nM for PFOA, which is 100-1000x better than MIPs. Protecting them with hydrogel encapsulation could extend in-vivo lifetime to weeks.
+
+### Problem 2: Biofouling kills implantable sensors
+
+The body treats any implant as a foreign object. Within 2-4 weeks, a fibrous capsule forms around the sensor, blocking analyte transport. Every implantable sensor faces this.
+
+**What actually works in practice:**
+
+| Strategy | Demonstrated lifetime | Used by | Mechanism |
+|----------|----------------------|---------|-----------|
+| Dexamethasone elution | 90-180 days | Senseonics Eversense (FDA-approved implantable CGM) | Locally suppresses inflammatory response |
+| Zwitterionic coatings (PCBMA) | Weeks-months (animal models) | Daniel Anderson's group (MIT) | Resists protein adsorption and macrophage adhesion |
+| PEG coatings | 7-30 days | Many research groups | Hydration layer repels proteins |
+| Nitric oxide-releasing coatings | 14-30 days (animal models) | Mark Meyerhoff (U Michigan) | Mimics endothelial anti-thrombotic signaling |
+
+**The Eversense model is the blueprint:** Senseonics solved the biofouling problem by (a) using optical (fluorescence) sensing instead of electrochemical, which is less sensitive to surface fouling, (b) eluting dexamethasone to suppress the foreign body response, and (c) designing the sensor to be passive (powered externally through skin). Their sensor lasts 6 months — the longest of any FDA-approved implantable sensor.
+
+**For a PFAS sensor:** copying the Eversense architecture (dexamethasone coating + passive power + optical transduction) is the most viable path to >90-day operation.
+
+### Problem 3: Continuous monitoring is not clinically justified
+
+This is the hardest truth. PFAS have half-lives of **3-8 years** in blood. Levels change over months to years, not hours. There are no acute PFAS emergencies requiring real-time detection. No PFAS-specific treatments exist that would be dosed based on continuous readings.
+
+**Real PFAS concentrations in human blood (NHANES/CDC data):**
+
+| PFAS compound | General US population | Near contaminated sites | Occupational exposure |
+|---------------|----------------------|------------------------|----------------------|
+| PFOS | 4-5 ng/mL | 50-1000+ ng/mL | Up to 2000+ ng/mL |
+| PFOA | 1-2 ng/mL | 10-500 ng/mL | Up to 1000+ ng/mL |
+| PFHxS | 1-2 ng/mL | 10-200 ng/mL | Variable |
+
+**The National Academies (2022)** set clinical guidance: >2 ng/mL total PFAS = increased exposure, >20 ng/mL = high exposure warranting follow-up. A blood test every 6-12 months provides equivalent clinical utility to continuous monitoring.
+
+### Problem 4: FDA pathway is 6-10 years and $50M+
+
+An implantable chemical sensor for a novel analyte would be **FDA Class III** requiring Premarket Approval (PMA). Precedents:
+
+| Device | Pathway | Time to approval | Clinical trial size |
+|--------|---------|-------------------|-------------------|
+| Senseonics Eversense (implantable CGM) | PMA, Class III | ~3 years from submission | Hundreds of patients |
+| Abbott CardioMEMS (implantable pressure sensor) | PMA, Class III | ~3 years from submission | 550 patients (CHAMPION trial) |
+| Dexcom G6 (wearable CGM) | De Novo, Class II | ~12-18 months | Smaller studies |
+
+For a PFAS implant: 1-2 years bench testing, 1-1.5 years animal studies, 1-1.5 years first-in-human, 1.5-3 years pivotal trial, 1-1.5 years FDA review = **6-10 years total**.
+
+---
+
+## 14. What Would Actually Work — A More Realistic Product
+
+Given these limitations, the real unmet need is not an implantable continuous monitor but a **cheap, fast, point-of-care PFAS blood test** — like a glucometer for PFAS.
+
+### Current PFAS blood testing (the problem)
+
+- Requires venipuncture (full blood draw)
+- Ship to specialized lab
+- LC-MS/MS analysis
+- Results in 1-4 weeks
+- Cost: $300-700 per panel
+
+### What a realistic PFAS POC device would look like
+
+| Feature | Specification |
+|---------|--------------|
+| Sample | Finger-prick capillary blood (10-50 uL) |
+| Time to result | 15-30 minutes |
+| Analytes | PFOS, PFOA, PFHxS, PFNA (top 4) |
+| LOD | ~1 ng/mL per analyte |
+| Dynamic range | 1-1000 ng/mL |
+| Accuracy | ±30% vs LC-MS/MS reference |
+| Cost per test | $20-50 |
+| Reader cost | $500-2000 |
+| FDA pathway | Class II (De Novo or 510(k)) — 1-3 years |
+| Regulatory precedent | Lateral flow immunoassays, electrochemical POC tests |
+
+### How to build it (using what this project already has)
+
+The simulation and CAD work from this project directly applies to a POC device:
+1. **Same sensor chamber and electrodes** — shrink to a disposable test strip format
+2. **Same serpentine channel** — pre-fill with buffer, use capillary-driven flow (no pump needed)
+3. **Aptamer-based recognition** — more suitable than MIPs for a disposable test (no regeneration needed, one-shot binding is fine)
+4. **No biocompatibility requirement** — it's external, in-vitro diagnostic
+5. **The readout electronics** become a handheld reader (phone-connected potentiostat, ~$50 in BOM)
+
+This reframes the project from "implantable sensor" (unsolved science + 10-year regulatory) to "point-of-care test" (hard engineering + 2-3 year regulatory). The physics is the same. The product is different.
+
+---
+
+## 15. Key References
+
+### PFAS Aptamers
+- Park et al. "Selection of ssDNA aptamers for PFOA/PFOS detection" — MIT, 2020-2022
+- Li et al. "Structure-switching aptamer sensors for PFAS" — McMaster University
+
+### Implantable Sensor Biofouling
+- Dexamethasone approach: Senseonics Eversense clinical data
+- Zwitterionic coatings: Vegas et al., Nature Biotechnology (2016), Anderson group (MIT)
+
+### PFAS Blood Levels
+- NHANES biomonitoring data (CDC, updated annually)
+- National Academies of Sciences "PFAS Exposure, Health Effects" (2022)
+
+### MIP Nanoparticles
+- Piletsky et al., nanoMIP synthesis and applications — University of Birmingham
+- Yoshida et al., fluorinated MIPs for PFAS — AIST Japan
+
+### Regulatory
+- FDA PMA database: Senseonics P160048, Abbott P130013
+- FDA De Novo database: Dexcom DEN170088
