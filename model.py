@@ -37,58 +37,56 @@ Metrics:
 """
 
 import numpy as np
-from scipy.integrate import solve_ivp
 
 
 def run_model(params: dict) -> dict:
-    k_bind   = params['k_bind']    # PFAS adsorption rate (1/time)
-    k_des    = params['k_des']     # desorption / regeneration rate (1/time)
-    k_inh    = params['k_inh']     # fast output→sensor inhibition
-    k_adapt  = params['k_adapt']   # slow adaptation coupling (h→sensor)
-    k_trans  = params['k_trans']   # sensor→microfluidic coupling gain
-    k_rel    = params['k_rel']     # microfluidic relaxation rate (1/time)
-    k_gain   = params['k_gain']    # electrochemical transduction gain
-    k_fb     = params['k_fb']      # adaptive feedback decay rate (1/time)
-    k_h_on   = params['k_h_on']    # adaptation activation rate (y→h)
-    k_h_off  = params['k_h_off']   # adaptation recovery rate (1/time)
-    T_end    = params['T_end']     # simulation window (normalized time)
+    k_bind   = params['k_bind']
+    k_des    = params['k_des']
+    k_inh    = params['k_inh']
+    k_adapt  = params['k_adapt']
+    k_trans  = params['k_trans']
+    k_rel    = params['k_rel']
+    k_gain   = params['k_gain']
+    k_fb     = params['k_fb']
+    k_h_on   = params['k_h_on']
+    k_h_off  = params['k_h_off']
+    T_end    = params['T_end']
 
-    def system(t, state):
-        s, m, y, h = state
-
-        # Nanosensor: PFAS binding with fast + slow inhibition
-        ds = k_bind * (1.0 - s) - k_des * s - k_inh * y * s - k_adapt * h * s
-
-        # Microfluidic transport layer
-        dm = k_trans * s - k_rel * m
-
-        # Electrochemical output with adaptive feedback
-        dy = k_gain * m - k_fb * y
-
-        # Slow adaptation (receptor desensitization analog)
-        dh = k_h_on * y - k_h_off * h
-
-        return [ds, dm, dy, dh]
-
-    sol = solve_ivp(
-        system,
-        [0.0, T_end],
-        [0.0, 0.0, 0.0, 0.0],
-        method='RK45',
-        max_step=T_end / 500.0,
-        dense_output=True,
-        rtol=1e-6,
-        atol=1e-8,
-    )
-
+    # Fixed-step RK4 integration for speed
     N = 2000
-    t_eval = np.linspace(0.0, T_end, N)
-    states = sol.sol(t_eval)
-    y_out  = states[2]
+    dt = T_end / N
+    t_eval = np.linspace(0.0, T_end, N + 1)
+    y_out = np.empty(N + 1)
+
+    s, m, y, h = 0.0, 0.0, 0.0, 0.0
+    y_out[0] = 0.0
+
+    for i in range(N):
+        # RK4 step
+        def deriv(s_, m_, y_, h_):
+            ds = k_bind * (1.0 - s_) - k_des * s_ - k_inh * y_ * s_ - k_adapt * h_ * s_
+            dm = k_trans * s_ - k_rel * m_
+            dy = k_gain * m_ - k_fb * y_
+            dh = k_h_on * y_ - k_h_off * h_
+            return ds, dm, dy, dh
+
+        k1s, k1m, k1y, k1h = deriv(s, m, y, h)
+        k2s, k2m, k2y, k2h = deriv(s + 0.5*dt*k1s, m + 0.5*dt*k1m, y + 0.5*dt*k1y, h + 0.5*dt*k1h)
+        k3s, k3m, k3y, k3h = deriv(s + 0.5*dt*k2s, m + 0.5*dt*k2m, y + 0.5*dt*k2y, h + 0.5*dt*k2h)
+        k4s, k4m, k4y, k4h = deriv(s + dt*k3s, m + dt*k3m, y + dt*k3y, h + dt*k3h)
+
+        s += dt/6.0 * (k1s + 2*k2s + 2*k3s + k4s)
+        m += dt/6.0 * (k1m + 2*k2m + 2*k3m + k4m)
+        y += dt/6.0 * (k1y + 2*k2y + 2*k3y + k4y)
+        h += dt/6.0 * (k1h + 2*k2h + 2*k3h + k4h)
+
+        y_out[i + 1] = y
+
+    N1 = N + 1
 
     # ── Amplitude ──────────────────────────────────────────────────────────────
     y_peak  = float(np.max(y_out))
-    y_final = float(np.mean(y_out[int(0.98 * N):]))   # mean of last 2%   # mean of last 2%
+    y_final = float(np.mean(y_out[int(0.98 * N1):]))   # mean of last 2%
 
     idx_peak = int(np.argmax(y_out))
 
@@ -98,7 +96,6 @@ def run_model(params: dict) -> dict:
     excess  = y_after - y_final
     decay   = 0.0
     if excess[0] > 1e-6:
-        # Use only the initial decay region (first 30% of excess range)
         cutoff = excess[0] * 0.30
         valid  = (excess > cutoff) & (excess > 0)
         if valid.sum() > 5:
