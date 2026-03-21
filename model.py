@@ -1,19 +1,19 @@
 """
-model.py — Closed-Loop PFAS Nanobiosensor with Burst + Baseline
+model.py — Closed-Loop PFAS Nanobiosensor v3: Decoupled Adaptation
 
 Architecture: 5-state bioelectronic nanomicrosystem for PFAS detection.
 
 States:
-    s  : nanosensor surface occupancy (PFAS capture, 0–1 normalized)
-    m  : microfluidic transport / buffered signal intermediate
+    s  : nanosensor surface occupancy (0–1, independent first-order)
+    m  : microfluidic transport / buffered signal
     y  : electrochemical output (measured signal)
-    h  : slow adaptation variable (receptor desensitization / refractory state)
-    b  : burst amplification factor (transient gain enhancement that decays)
+    h  : slow adaptation variable (acts directly on output, not sensor)
+    b  : burst amplification (transient gain, exponential decay)
 
-Key design: two gain pathways to output y:
-    1. Primary path: k_gain * m * (1+b) — high transient, lower steady state
-    2. Baseline path: k_base * s — direct sensor-to-output coupling (adaptation-resistant)
-    This decouples y_final from undershoot depth.
+Key change from v2: adaptation h subtracts from output y directly,
+not from sensor s. This decouples steady-state sensor gain from
+adaptation dynamics, making y_final and undershoot independently
+controllable. Adaptation uses y² coupling for stronger peak response.
 """
 
 import numpy as np
@@ -22,20 +22,18 @@ import numpy as np
 def run_model(params: dict) -> dict:
     k_bind   = params['k_bind']
     k_des    = params['k_des']
-    k_inh    = params['k_inh']
-    k_adapt  = params['k_adapt']
     k_trans  = params['k_trans']
     k_rel    = params['k_rel']
     k_gain   = params['k_gain']
     k_fb     = params['k_fb']
     k_h_on   = params['k_h_on']
     k_h_off  = params['k_h_off']
+    k_h_inh  = params['k_h_inh']   # adaptation → output inhibition strength
     b0       = params['b0']
     k_b_dec  = params['k_b_dec']
-    k_base   = params['k_base']    # baseline direct sensor coupling
     T_end    = params['T_end']
 
-    # Fixed-step RK4 integration for speed
+    # Fixed-step RK4 integration
     N = 2000
     dt = T_end / N
     t_eval = np.linspace(0.0, T_end, N + 1)
@@ -46,11 +44,21 @@ def run_model(params: dict) -> dict:
 
     for i in range(N):
         def deriv(s_, m_, y_, h_, b_):
-            ds = k_bind * (1.0 - s_) - k_des * s_ - k_inh * y_ * s_ - k_adapt * h_ * s_
+            # Sensor: simple first-order binding (decoupled from adaptation)
+            ds = k_bind * (1.0 - s_) - k_des * s_
+
+            # Transport layer
             dm = k_trans * s_ - k_rel * m_
-            dy = k_gain * m_ * (1.0 + b_) + k_base * s_ - k_fb * y_
-            dh = k_h_on * y_ - k_h_off * h_
+
+            # Output: gain with burst, feedback decay, and adaptation inhibition
+            dy = k_gain * m_ * (1.0 + b_) - k_fb * y_ - k_h_inh * h_
+
+            # Adaptation: responds to y² for stronger peak sensitivity
+            dh = k_h_on * y_ * y_ - k_h_off * h_
+
+            # Burst: exponential decay
             db = -k_b_dec * b_
+
             return ds, dm, dy, dh, db
 
         k1 = deriv(s, m, y, h, b)
