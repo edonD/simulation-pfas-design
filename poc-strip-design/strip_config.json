@@ -1,0 +1,83 @@
+{
+  "sample_preparation": {
+    "c_albumin_uM": 600,
+    "f_bound_initial": 0.95,
+    "Kd_PFOS_HSA_uM": 30,
+    "k_denat_base_per_s": 0.05,
+    "denaturation_enhancement": 10.0,
+    "MW_PFOS": 500.13,
+    "t_prep_s": 120
+  },
+  "capillary_transport": {
+    "strip_length_m": 0.025,
+    "pore_radius_m": 5e-6,
+    "contact_angle_deg": 30,
+    "surface_tension_N_per_m": 0.045,
+    "porosity": 0.7,
+    "tortuosity": 1.5,
+    "D_PFOS_m2_per_s": 5e-10,
+    "electrode_position_m": 0.015
+  },
+  "mip_binding": {
+    "ka_per_M_per_s": 1e5,
+    "kd_per_s": 0.01,
+    "Gamma_max_mol_per_m2": 1e-8,
+    "electrode_diameter_m": 0.003,
+    "mip_thickness_m": 1e-7
+  },
+  "electrochemistry": {
+    "E_formal_V": 0.70,
+    "i_baseline_uA": 25.0,
+    "max_signal_suppression_frac": 0.184,
+    "swv_E_start_V": -0.3,
+    "swv_E_end_V": 1.0,
+    "swv_step_V": 0.004,
+    "swv_amplitude_V": 0.025,
+    "swv_frequency_Hz": 25,
+    "sigma_E_V": 0.026
+  },
+  "noise_model": {
+    "thermal_noise_uA": 0.005,
+    "dl_charging_noise_uA": 0.002,
+    "electrode_variability_cv": 0.08
+  },
+  "matrix_effects": {
+    "buffer": {
+      "viscosity_factor": 1.0,
+      "binding_efficiency": 1.0,
+      "background_current_factor": 1.0,
+      "nonspecific_binding_frac": 0.0,
+      "has_protein": false
+    },
+    "serum_10pct": {
+      "viscosity_factor": 1.15,
+      "binding_efficiency": 0.60,
+      "background_current_factor": 1.25,
+      "nonspecific_binding_frac": 0.05,
+      "has_protein": true
+    },
+    "whole_blood": {
+      "viscosity_factor": 3.5,
+      "binding_efficiency": 0.35,
+      "background_current_factor": 1.8,
+      "nonspecific_binding_frac": 0.12,
+      "has_protein": true
+    }
+  },
+  "monte_carlo": {
+    "n_strips": 500,
+    "param_cv": {
+      "ka": 0.15,
+      "Gamma_max": 0.20,
+      "electrode_area": 0.10,
+      "baseline_current": 0.08,
+      "mip_thickness": 0.25,
+      "max_suppression": 0.10
+    }
+  },
+  "simulation": {
+    "dt_s": 0.5,
+    "t_total_s": 900,
+    "calibration_concentrations_ng_mL": [0, 0.1, 0.3, 1, 3, 10, 30, 100, 300, 1000]
+  }
+}

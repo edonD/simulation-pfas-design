@@ -1,0 +1,11 @@
+{
+  "LOD_ng_mL": 5.0,
+  "dynamic_range_low_ng_mL": 1.0,
+  "dynamic_range_high_ng_mL": 1000.0,
+  "time_to_result_s": 900,
+  "CV_at_10ngmL_pct": 15.0,
+  "signal_change_at_100ngmL_pct": 5.0,
+  "cross_reactivity_max_pct": 5.0,
+  "matrix_recovery_min_pct": 30.0,
+  "calibration_r_squared_min": 0.95
+}
