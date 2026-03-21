@@ -1,0 +1,17 @@
+Phase 1 PFOS Detection Experiment Results
+==================================================
+
+Limit of Detection (LOD): 0.7916 ng/mL
+Verdict: EXCELLENT — Detects PFOS at general population blood levels. Strong path to product.
+
+Calibration data:
+   Conc (ng/mL) Mean Change (%)     Std Dev (%)
+           0.00            0.09            0.86
+           0.01            0.09            0.52
+           0.10            0.17            0.45
+           1.00            3.19            1.50
+          10.00           13.40            1.27
+         100.00           21.49            0.73
+        1000.00           22.91            0.29
+
+Control electrodes (no aptamer): mean change = -0.15% +/- 2.07%

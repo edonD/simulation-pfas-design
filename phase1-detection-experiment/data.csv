@@ -1,0 +1,34 @@
+concentration_ng_mL,baseline_current_uA,post_pfos_current_uA,electrode_type,notes
+# Instructions:
+# 1. Enter one row per measurement
+# 2. concentration_ng_mL: PFOS concentration in ng/mL
+# 3. baseline_current_uA: SWV peak current BEFORE PFOS exposure (microamps)
+# 4. post_pfos_current_uA: SWV peak current AFTER PFOS exposure (microamps)
+# 5. electrode_type: 'aptamer' or 'control' (no aptamer)
+# 6. Delete these comment rows and the example data below before running
+
+# === EXAMPLE DATA (delete and replace with yours) ===
+0,25.15,24.84,aptamer,rep1
+0,25.12,25.33,aptamer,rep2
+0,25.72,25.75,aptamer,rep3
+0.01,25.12,24.94,aptamer,rep1
+0.01,25.72,25.69,aptamer,rep2
+0.01,24.77,24.91,aptamer,rep3
+0.1,24.59,24.42,aptamer,rep1
+0.1,25.05,25.15,aptamer,rep2
+0.1,24.51,24.46,aptamer,rep3
+1,24.84,24.49,aptamer,rep1
+1,24.44,23.20,aptamer,rep2
+1,24.72,23.96,aptamer,rep3
+10,25.99,22.86,aptamer,rep1
+10,24.50,20.80,aptamer,rep2
+10,25.06,21.79,aptamer,rep3
+100,25.13,19.54,aptamer,rep1
+100,24.69,19.63,aptamer,rep2
+100,25.26,19.77,aptamer,rep3
+1000,24.86,19.10,aptamer,rep1
+1000,25.72,19.79,aptamer,rep2
+1000,24.52,19.00,aptamer,rep3
+1000,24.42,24.51,control,rep1
+1000,24.60,23.99,control,rep2
+1000,25.31,25.96,control,rep3
