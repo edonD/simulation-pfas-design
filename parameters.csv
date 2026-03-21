@@ -11,4 +11,5 @@ k_h_on,0.01,20.0,log
 k_h_off,0.001,1.0,log
 b0,2.0,30.0,log
 k_b_dec,0.1,5.0,log
+k_base,0.01,10.0,log
 T_end,18.0,60.0,lin

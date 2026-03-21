@@ -1,5 +1,5 @@
 """
-model.py — Closed-Loop PFAS Nanobiosensor with Burst Amplification
+model.py — Closed-Loop PFAS Nanobiosensor with Burst + Baseline
 
 Architecture: 5-state bioelectronic nanomicrosystem for PFAS detection.
 
@@ -10,15 +10,10 @@ States:
     h  : slow adaptation variable (receptor desensitization / refractory state)
     b  : burst amplification factor (transient gain enhancement that decays)
 
-Physics:
-    1. PFAS adsorbs to functionalized nanoparticle surface (s).
-    2. Surface occupancy drives microfluidic transport layer (m).
-    3. Electrochemical output y rises with m, boosted by burst factor (1+b).
-       y decays via adaptive feedback k_fb.
-    4. Burst factor b starts high and decays as signal y rises.
-       This creates a large transient peak that fades to steady state.
-    5. Output y activates slow inhibitor h (receptor desensitization).
-       h suppresses sensor, creating undershoot below y_final.
+Key design: two gain pathways to output y:
+    1. Primary path: k_gain * m * (1+b) — high transient, lower steady state
+    2. Baseline path: k_base * s — direct sensor-to-output coupling (adaptation-resistant)
+    This decouples y_final from undershoot depth.
 """
 
 import numpy as np
@@ -35,8 +30,9 @@ def run_model(params: dict) -> dict:
     k_fb     = params['k_fb']
     k_h_on   = params['k_h_on']
     k_h_off  = params['k_h_off']
-    b0       = params['b0']        # initial burst amplification level
-    k_b_dec  = params['k_b_dec']   # burst decay rate (driven by y)
+    b0       = params['b0']
+    k_b_dec  = params['k_b_dec']
+    k_base   = params['k_base']    # baseline direct sensor coupling
     T_end    = params['T_end']
 
     # Fixed-step RK4 integration for speed
@@ -52,9 +48,9 @@ def run_model(params: dict) -> dict:
         def deriv(s_, m_, y_, h_, b_):
             ds = k_bind * (1.0 - s_) - k_des * s_ - k_inh * y_ * s_ - k_adapt * h_ * s_
             dm = k_trans * s_ - k_rel * m_
-            dy = k_gain * m_ * (1.0 + b_) - k_fb * y_
+            dy = k_gain * m_ * (1.0 + b_) + k_base * s_ - k_fb * y_
             dh = k_h_on * y_ - k_h_off * h_
-            db = -k_b_dec * b_   # burst decays exponentially
+            db = -k_b_dec * b_
             return ds, dm, dy, dh, db
 
         k1 = deriv(s, m, y, h, b)
@@ -68,7 +64,6 @@ def run_model(params: dict) -> dict:
         h += dt/6.0 * (k1[3] + 2*k2[3] + 2*k3[3] + k4[3])
         b += dt/6.0 * (k1[4] + 2*k2[4] + 2*k3[4] + k4[4])
 
-        # Clamp to prevent divergence
         s = max(0.0, min(s, 1.0))
         m = max(0.0, min(m, 1e4))
         y = max(0.0, min(y, 1e4))
@@ -81,7 +76,7 @@ def run_model(params: dict) -> dict:
 
     # ── Amplitude ──────────────────────────────────────────────────────────────
     y_peak  = float(np.max(y_out))
-    y_final = float(np.mean(y_out[int(0.98 * N1):]))   # mean of last 2%
+    y_final = float(np.mean(y_out[int(0.98 * N1):]))
 
     idx_peak = int(np.argmax(y_out))
 
