@@ -54,7 +54,7 @@ def run_model(params: dict) -> dict:
             dm = k_trans * s_ - k_rel * m_
             dy = k_gain * m_ * (1.0 + b_) - k_fb * y_
             dh = k_h_on * y_ - k_h_off * h_
-            db = -k_b_dec * y_ * b_   # burst decays as output rises
+            db = -k_b_dec * b_   # burst decays exponentially
             return ds, dm, dy, dh, db
 
         k1 = deriv(s, m, y, h, b)
