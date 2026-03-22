@@ -1,0 +1,7 @@
+# Sky130 PDK symbols
+append XSCHEM_LIBRARY_PATH :/tmp/xschem_sky130
+# Ensure built-in devices (lab_pin etc) are found  
+append XSCHEM_LIBRARY_PATH :/usr/local/share/xschem/xschem_library
+
+# Light color scheme for professional export
+set dark_colorscheme 0
