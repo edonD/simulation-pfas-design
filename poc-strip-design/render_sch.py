@@ -2,6 +2,14 @@
 """
 render_sch.py — Parse xschem .sch files and render to PNG with proper
 MOSFET symbols, wire routing, and net labels.
+
+xschem sky130 MOSFET coordinate convention:
+  - C line position (gx, gy) = gate pin location
+  - mirror=0: channel is 20 units RIGHT of gate  (channel_x = gx + 20)
+  - mirror=1: channel is 20 units LEFT of gate   (channel_x = gx - 20)
+  - NFET: drain at (channel_x, gy - 30), source at (channel_x, gy + 30)
+  - PFET: source at (channel_x, gy - 30), drain at (channel_x, gy + 30)
+  - Screen coordinates: y_screen = -y_xschem (y is flipped)
 """
 import os
 import re
@@ -9,308 +17,341 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch, Arc
+from matplotlib.patches import FancyBboxPatch
 from matplotlib.lines import Line2D
 
 
-def parse_sch(filepath):
-    """Parse xschem .sch file."""
-    wires = []
-    components = []
+# ── xschem coordinate helpers ──────────────────────────────────────────────
 
-    with open(filepath) as f:
-        content = f.read()
-
-    # Parse multi-line component blocks: C {symbol} x y rot mirror {attrs\n...\n}
-    # Components can span multiple lines
-    comp_pattern = re.compile(
-        r'C\s+\{([^}]+)\}\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+\{([^}]*)\}',
-        re.DOTALL
-    )
-    for m in comp_pattern.finditer(content):
-        symbol = m.group(1)
-        x, y = float(m.group(2)), float(m.group(3))
-        rot = int(float(m.group(4)))
-        mirror = int(float(m.group(5)))
-        attrs = m.group(6)
-
-        name_m = re.search(r'name=(\S+)', attrs)
-        name = name_m.group(1) if name_m else ""
-        w_m = re.search(r'W=([\d.]+)', attrs)
-        l_m = re.search(r'L=([\d.]+)', attrs)
-        w_val = w_m.group(1) if w_m else ""
-        l_val = l_m.group(1) if l_m else ""
-        lab_m = re.search(r'lab=(\S+)', attrs)
-        lab = lab_m.group(1) if lab_m else ""
-
-        components.append({
-            'symbol': symbol, 'x': x, 'y': y,
-            'rot': rot, 'mirror': mirror,
-            'name': name, 'W': w_val, 'L': l_val, 'lab': lab,
-        })
-
-    # Parse wires
-    for line in content.split('\n'):
-        line = line.strip()
-        if line.startswith('N '):
-            parts = line.split()
-            if len(parts) >= 5:
-                try:
-                    x1, y1, x2, y2 = float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
-                    lab_m = re.search(r'lab=(\S+)', line)
-                    label = lab_m.group(1) if lab_m else None
-                    wires.append((x1, y1, x2, y2, label))
-                except ValueError:
-                    pass
-
-    return wires, components
+GATE_OFFSET = 20   # gate-to-channel distance in xschem units
+PIN_OFFSET = 30    # channel-center to drain/source distance
 
 
-def draw_nmos(ax, x, y, mirror=0, name="", w="", l="", scale=1.0):
-    """Draw NMOS transistor symbol at (x, y).
-    Standard xschem orientation: gate on left, drain top, source bottom.
-    mirror=1 means gate on right.
+def mosfet_screen_coords(gx, gy, mirror):
+    """Return screen coordinates for MOSFET terminals.
+
+    Returns dict with keys: gate, channel, top, bot  (all in screen coords).
+    'top' is drain for NFET, source for PFET (but the renderer doesn't
+    need to distinguish — it just draws the symbol at the channel).
     """
-    s = 12 * scale  # symbol half-size
+    cx = gx - GATE_OFFSET if mirror == 1 else gx + GATE_OFFSET
+    # screen y = -xschem_y
+    return {
+        'gate':    (gx, -gy),
+        'channel': (cx, -gy),
+        'top':     (cx, -(gy - PIN_OFFSET)),   # higher on screen (positive y)
+        'bot':     (cx, -(gy + PIN_OFFSET)),   # lower on screen (negative y)
+    }
 
-    if mirror == 1:
-        gx = 1  # gate direction (right)
+
+# ── Drawing functions ──────────────────────────────────────────────────────
+
+def draw_mosfet(ax, gx, gy, mirror=0, is_pmos=False, name="", w="", l=""):
+    """Draw a clean MOSFET symbol using xschem coordinates.
+
+    gx, gy: gate pin position (from C line, xschem coords).
+    All drawing is in screen coords (y flipped).
+    """
+    t = mosfet_screen_coords(gx, gy, mirror)
+    cx, cy = t['channel']
+    gate_sx, gate_sy = t['gate']
+    top_x, top_y = t['top']
+    bot_x, bot_y = t['bot']
+
+    # Gate direction in screen coords: gate is LEFT of channel (gdir=-1)
+    # for mirror=0, RIGHT (gdir=+1) for mirror=1
+    gdir = 1 if mirror == 1 else -1
+
+    body_color = '#1a1a2e'
+    nmos_color = '#1b7a3d'
+    pmos_color = '#b71c1c'
+    accent = pmos_color if is_pmos else nmos_color
+
+    # ── Channel bar ──
+    chan_h = 20  # half-height of drawn channel bar
+    ax.plot([cx, cx], [cy - chan_h, cy + chan_h],
+            color=body_color, linewidth=3.0, solid_capstyle='butt', zorder=5)
+
+    # ── Three stub lines from channel to the gate-plate side ──
+    gap = 4  # channel-to-plate gap
+    plate_x = cx + gdir * gap
+    stub_len = 5
+    for dy in [-12, 0, 12]:
+        ax.plot([cx, cx + gdir * stub_len], [cy + dy, cy + dy],
+                color=body_color, linewidth=1.2, zorder=5)
+
+    # ── Gate plate (vertical, parallel to channel) ──
+    plate_h = 17
+    ax.plot([plate_x, plate_x], [cy - plate_h, cy + plate_h],
+            color=body_color, linewidth=2.5, solid_capstyle='round', zorder=5)
+
+    # ── Gate connection line ──
+    if is_pmos:
+        # PMOS bubble
+        br = 2.5
+        bx = plate_x + gdir * br
+        circle = plt.Circle((bx, cy), br, fill=False,
+                             edgecolor=body_color, linewidth=1.5, zorder=6)
+        ax.add_patch(circle)
+        ax.plot([bx + gdir * br, gate_sx], [cy, gate_sy],
+                color=body_color, linewidth=1.5, zorder=5)
     else:
-        gx = -1  # gate direction (left)
+        ax.plot([plate_x, gate_sx], [cy, gate_sy],
+                color=body_color, linewidth=1.5, zorder=5)
 
-    # Channel line (vertical)
-    ax.plot([x, x], [y - s, y + s], color='#1a1a1a', linewidth=2, solid_capstyle='butt')
+    # ── Drain / source stubs ──
+    ax.plot([cx, top_x], [cy + chan_h, top_y],
+            color=body_color, linewidth=1.5, zorder=5)
+    ax.plot([cx, bot_x], [cy - chan_h, bot_y],
+            color=body_color, linewidth=1.5, zorder=5)
 
-    # Gate line (horizontal stub + vertical plate)
-    gate_x = x + gx * s * 0.6
-    ax.plot([gate_x, gate_x], [y - s * 0.7, y + s * 0.7], color='#1a1a1a', linewidth=2.5)
-    ax.plot([gate_x, x + gx * s * 1.2], [y, y], color='#1a1a1a', linewidth=1.5)
-
-    # Drain (top)
-    ax.plot([x, x], [y + s, y + s * 1.5], color='#1a1a1a', linewidth=1.5)
-    # Source (bottom)
-    ax.plot([x, x], [y - s, y - s * 1.5], color='#1a1a1a', linewidth=1.5)
-
-    # Arrow on source (pointing into channel for NMOS)
-    ax.annotate('', xy=(x, y - s * 0.3), xytext=(x + gx * s * 0.55, y - s * 0.3),
-                arrowprops=dict(arrowstyle='->', color='#1a1a1a', lw=1.2))
-
-    # Body connection line
-    ax.plot([x, x + gx * s * 0.6], [y - s * 0.3, y - s * 0.3], color='#1a1a1a', linewidth=0.8, alpha=0.5)
-    ax.plot([x, x + gx * s * 0.6], [y + s * 0.3, y + s * 0.3], color='#1a1a1a', linewidth=0.8, alpha=0.5)
-
-    # Label
-    label_x = x - gx * s * 0.8
-    if name:
-        ax.text(label_x, y + s * 0.3, name, fontsize=7, fontweight='bold',
-                ha='center', va='bottom', color='#2e7d32')
-    if w and l:
-        ax.text(label_x, y - s * 0.3, f'W={w}\nL={l}', fontsize=5,
-                ha='center', va='top', color='#555')
-
-
-def draw_pmos(ax, x, y, mirror=0, name="", w="", l="", scale=1.0):
-    """Draw PMOS transistor symbol at (x, y)."""
-    s = 12 * scale
-
-    if mirror == 1:
-        gx = 1
+    # ── Arrow (NMOS: into channel on source side; PMOS: out on source side) ──
+    arrow_dy = -8 if not is_pmos else 8
+    arrow_y = cy + arrow_dy
+    if is_pmos:
+        ax.annotate('', xy=(cx + gdir * (gap - 0.5), arrow_y),
+                    xytext=(cx, arrow_y),
+                    arrowprops=dict(arrowstyle='->', color=accent,
+                                   lw=1.5, mutation_scale=10),
+                    zorder=6)
     else:
-        gx = -1
+        ax.annotate('', xy=(cx, arrow_y),
+                    xytext=(cx + gdir * (gap - 0.5), arrow_y),
+                    arrowprops=dict(arrowstyle='->', color=accent,
+                                   lw=1.5, mutation_scale=10),
+                    zorder=6)
 
-    # Channel line
-    ax.plot([x, x], [y - s, y + s], color='#1a1a1a', linewidth=2, solid_capstyle='butt')
+    # ── Terminal dots ──
+    for tx, ty in [t['gate'], t['top'], t['bot']]:
+        ax.plot(tx, ty, 'o', color=body_color, markersize=3, zorder=7)
 
-    # Gate with bubble (PMOS indicator)
-    gate_x = x + gx * s * 0.6
-    ax.plot([gate_x, gate_x], [y - s * 0.7, y + s * 0.7], color='#1a1a1a', linewidth=2.5)
-    bubble_x = gate_x + gx * s * 0.2
-    circle = plt.Circle((bubble_x, y), s * 0.12, fill=False, edgecolor='#1a1a1a', linewidth=1.5)
-    ax.add_patch(circle)
-    ax.plot([bubble_x + gx * s * 0.12, x + gx * s * 1.2], [y, y], color='#1a1a1a', linewidth=1.5)
-
-    # Drain (top)
-    ax.plot([x, x], [y + s, y + s * 1.5], color='#1a1a1a', linewidth=1.5)
-    # Source (bottom)
-    ax.plot([x, x], [y - s, y - s * 1.5], color='#1a1a1a', linewidth=1.5)
-
-    # Arrow on source (pointing out of channel for PMOS)
-    ax.annotate('', xy=(x + gx * s * 0.55, y + s * 0.3), xytext=(x, y + s * 0.3),
-                arrowprops=dict(arrowstyle='->', color='#1a1a1a', lw=1.2))
-
-    # Body connections
-    ax.plot([x, x + gx * s * 0.6], [y - s * 0.3, y - s * 0.3], color='#1a1a1a', linewidth=0.8, alpha=0.5)
-    ax.plot([x, x + gx * s * 0.6], [y + s * 0.3, y + s * 0.3], color='#1a1a1a', linewidth=0.8, alpha=0.5)
-
-    # Label
-    label_x = x - gx * s * 0.8
+    # ── Labels (on opposite side of gate) ──
+    lab_dir = -gdir
+    lx = cx + lab_dir * 22
     if name:
-        ax.text(label_x, y + s * 0.3, name, fontsize=7, fontweight='bold',
-                ha='center', va='bottom', color='#c62828')
+        ax.text(lx, cy + 6, name, fontsize=8, fontweight='bold',
+                ha='center', va='bottom', color=accent, zorder=8)
     if w and l:
-        ax.text(label_x, y - s * 0.3, f'W={w}\nL={l}', fontsize=5,
-                ha='center', va='top', color='#555')
+        ax.text(lx, cy - 4, f'W={w}\nL={l}', fontsize=5.5,
+                ha='center', va='top', color='#666', zorder=8,
+                linespacing=1.3)
 
 
 def draw_label_pin(ax, x, y, label="", mirror=0):
-    """Draw a label/pin marker."""
+    """Draw a net label badge at (x, -y) screen coords."""
     if not label:
         return
-    s = 8
+    sx, sy = x, -y
+
     if mirror == 1:
-        ha = 'right'
-        dx = -s
+        ha, dx = 'right', -8
     else:
-        ha = 'left'
-        dx = s
+        ha, dx = 'left', 8
 
-    color = '#e65100'
-    if label in ('VDD', 'vdd'):
-        color = '#c62828'
-    elif label in ('GND', 'VSS', 'vss', 'gnd'):
-        color = '#1a237e'
+    # Color scheme by net type
+    if label.upper() in ('VDD',):
+        color, bg = '#b71c1c', '#fce4ec'
+    elif label.upper() in ('GND', 'VSS'):
+        color, bg = '#1a237e', '#e8eaf6'
     elif label.startswith('#'):
-        color = '#666'
+        return  # don't draw internal nets
+    else:
+        color, bg = '#e65100', '#fff3e0'
 
-    ax.text(x + dx, y, label, fontsize=6, fontweight='bold',
+    ax.text(sx + dx, sy, label, fontsize=7, fontweight='bold',
             ha=ha, va='center', color=color,
-            bbox=dict(facecolor='white', edgecolor=color, alpha=0.8,
-                      boxstyle='round,pad=0.15', linewidth=0.8))
+            bbox=dict(facecolor=bg, edgecolor=color, alpha=0.92,
+                      boxstyle='round,pad=0.25', linewidth=0.9),
+            zorder=8)
 
+
+# ── Main render function ──────────────────────────────────────────────────
 
 def render_sch_to_png(filepath, output_path, title=None):
-    """Render .sch file to PNG with proper circuit symbols."""
+    """Render .sch file to PNG."""
     wires, components = parse_sch(filepath)
 
     if not wires and not components:
         print(f"  No geometry in {filepath}")
         return False
 
-    fig, ax = plt.subplots(figsize=(14, 10))
+    fig, ax = plt.subplots(figsize=(16, 11))
+    fig.patch.set_facecolor('white')
 
-    all_x = []
-    all_y = []
+    all_x, all_y = [], []
 
-    # Draw wires first (behind components)
+    # ── Wires (drawn first, behind components) ──
     wire_labels_drawn = set()
     for x1, y1, x2, y2, label in wires:
-        # Flip Y (xschem Y is inverted)
-        py1, py2 = -y1, -y2
-        ax.plot([x1, x2], [py1, py2], color='#1565c0', linewidth=1.2,
-                solid_capstyle='round', zorder=1)
+        sy1, sy2 = -y1, -y2
+        ax.plot([x1, x2], [sy1, sy2], color='#1976d2', linewidth=1.4,
+                solid_capstyle='round', zorder=2)
         all_x.extend([x1, x2])
-        all_y.extend([py1, py2])
+        all_y.extend([sy1, sy2])
 
-        # Draw net label once per unique label (avoid clutter)
         if label and not label.startswith('#') and label not in wire_labels_drawn:
-            mx, my = (x1 + x2) / 2, (py1 + py2) / 2
-            # Only label horizontal or long wires
             length = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-            if length > 15:
-                ax.text(mx, my + 4, label, fontsize=5, ha='center', va='bottom',
-                        color='#e65100', fontstyle='italic', alpha=0.7)
+            if length > 25:
+                mx, my = (x1 + x2) / 2, (sy1 + sy2) / 2
+                ax.text(mx, my + 5, label, fontsize=5, ha='center',
+                        va='bottom', color='#e65100', fontstyle='italic',
+                        alpha=0.55, zorder=3)
                 wire_labels_drawn.add(label)
 
-    # Draw junction dots where 3+ wires meet
-    wire_endpoints = {}
+    # ── Junction dots (3+ wires meet) ──
+    endpoints = {}
     for x1, y1, x2, y2, _ in wires:
         for px, py in [(x1, -y1), (x2, -y2)]:
             key = (round(px, 1), round(py, 1))
-            wire_endpoints[key] = wire_endpoints.get(key, 0) + 1
-    for (px, py), count in wire_endpoints.items():
-        if count >= 3:
-            ax.plot(px, py, 'o', color='#1565c0', markersize=4, zorder=3)
+            endpoints[key] = endpoints.get(key, 0) + 1
+    for (px, py), cnt in endpoints.items():
+        if cnt >= 3:
+            ax.plot(px, py, 'o', color='#1976d2', markersize=4.5, zorder=4)
 
-    # Draw components
+    # ── Components ──
     for comp in components:
         sym = comp['symbol'].lower()
-        x, y = comp['x'], -comp['y']  # flip Y
+        gx, gy = comp['x'], comp['y']
         mirror = comp['mirror']
-        name = comp['name']
-        w = comp['W']
-        l = comp['L']
-        lab = comp['lab']
 
-        all_x.append(x)
-        all_y.append(y)
+        # Add terminal positions to bounds
+        if 'fet' in sym or 'mos' in sym:
+            t = mosfet_screen_coords(gx, gy, mirror)
+            for v in t.values():
+                all_x.append(v[0])
+                all_y.append(v[1])
+        else:
+            all_x.append(gx)
+            all_y.append(-gy)
 
         if 'nfet' in sym or 'nmos' in sym:
-            draw_nmos(ax, x, y, mirror=mirror, name=name, w=w, l=l)
+            draw_mosfet(ax, gx, gy, mirror=mirror, is_pmos=False,
+                        name=comp['name'], w=comp['W'], l=comp['L'])
         elif 'pfet' in sym or 'pmos' in sym:
-            draw_pmos(ax, x, y, mirror=mirror, name=name, w=w, l=l)
-        elif 'lab_pin' in sym or 'ipin' in sym or 'opin' in sym or 'iopin' in sym:
-            draw_label_pin(ax, x, y, label=lab, mirror=mirror)
-        elif 'res' in sym:
-            # Resistor: zigzag
-            s = 10
-            ax.plot([x, x], [y - s * 1.5, y + s * 1.5], color='#795548', linewidth=2)
-            for i in range(5):
-                yi = y - s + i * s * 0.4
-                ax.plot([x - 4, x + 4], [yi, yi + s * 0.2], color='#795548', linewidth=1.5)
-            if name:
-                ax.text(x + 10, y, name, fontsize=6, color='#795548')
-        elif 'cap' in sym:
-            # Capacitor: two parallel lines
-            s = 8
-            ax.plot([x - 6, x + 6], [y + 2, y + 2], color='#1565c0', linewidth=2.5)
-            ax.plot([x - 6, x + 6], [y - 2, y - 2], color='#1565c0', linewidth=2.5)
-            ax.plot([x, x], [y + 2, y + s], color='#1565c0', linewidth=1.5)
-            ax.plot([x, x], [y - 2, y - s], color='#1565c0', linewidth=1.5)
-            if name:
-                ax.text(x + 10, y, name, fontsize=6, color='#1565c0')
+            draw_mosfet(ax, gx, gy, mirror=mirror, is_pmos=True,
+                        name=comp['name'], w=comp['W'], l=comp['L'])
+        elif any(k in sym for k in ('lab_pin', 'ipin', 'opin', 'iopin')):
+            draw_label_pin(ax, gx, gy, label=comp['lab'], mirror=mirror)
         else:
-            # Generic: small rectangle
-            rect = FancyBboxPatch((x - 8, y - 8), 16, 16, boxstyle="round,pad=1",
-                                   facecolor='#eee', edgecolor='#999', linewidth=0.8, zorder=2)
+            # Generic component box
+            sx, sy = gx, -gy
+            rect = FancyBboxPatch((sx - 10, sy - 8), 20, 16,
+                                   boxstyle="round,pad=1.5",
+                                   facecolor='#f5f5f5', edgecolor='#bdbdbd',
+                                   linewidth=0.9, zorder=5)
             ax.add_patch(rect)
-            short = sym.split('/')[-1][:6]
-            ax.text(x, y, short, ha='center', va='center', fontsize=5, color='#555')
+            short = sym.split('/')[-1][:8]
+            ax.text(sx, sy, short, ha='center', va='center',
+                    fontsize=5.5, color='#757575', zorder=6)
 
     if not all_x:
         plt.close()
         return False
 
-    margin = 30
+    # ── Axes & styling ──
+    margin = 45
     ax.set_xlim(min(all_x) - margin, max(all_x) + margin)
     ax.set_ylim(min(all_y) - margin, max(all_y) + margin)
     ax.set_aspect('equal')
-    ax.set_facecolor('#fafafa')
-    ax.grid(True, alpha=0.08, color='#999')
-
-    # Remove axis labels for cleaner look
+    ax.set_facecolor('#fafbfc')
+    ax.grid(True, alpha=0.05, color='#90a4ae', linewidth=0.5)
     ax.set_xticks([])
     ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_color('#cfd8dc')
+        spine.set_linewidth(0.7)
 
     if title:
-        ax.set_title(title, fontsize=13, fontweight='bold', pad=15)
+        ax.set_title(title, fontsize=14, fontweight='bold', pad=18,
+                     color='#263238', fontfamily='sans-serif')
 
     # Legend
     legend_elements = [
-        Line2D([0], [0], color='#2e7d32', linewidth=2, label='NMOS'),
-        Line2D([0], [0], color='#c62828', linewidth=2, label='PMOS'),
-        Line2D([0], [0], color='#1565c0', linewidth=1.5, label='Wire'),
+        Line2D([0], [0], color='#1b7a3d', linewidth=2.5, label='NMOS'),
+        Line2D([0], [0], color='#b71c1c', linewidth=2.5, label='PMOS'),
+        Line2D([0], [0], color='#1976d2', linewidth=1.5, label='Wire'),
     ]
-    ax.legend(handles=legend_elements, loc='lower right', fontsize=8, framealpha=0.9)
+    leg = ax.legend(handles=legend_elements, loc='lower right', fontsize=8.5,
+                    framealpha=0.95, edgecolor='#cfd8dc', fancybox=True)
+    leg.get_frame().set_linewidth(0.7)
 
-    # Stats
-    n_mos = sum(1 for c in components if 'fet' in c['symbol'].lower())
+    # Stats badge
+    n_mos = sum(1 for c in components
+                if 'fet' in c['symbol'].lower() or 'mos' in c['symbol'].lower())
     n_pins = sum(1 for c in components if 'lab_pin' in c['symbol'].lower())
-    stats = f"{n_mos} transistors | {len(wires)} wires | {n_pins} pins"
+    stats = f"{n_mos} transistors  ·  {len(wires)} wires  ·  {n_pins} pins"
     ax.text(0.02, 0.02, stats, transform=ax.transAxes, fontsize=8,
-            color='#555', bbox=dict(facecolor='white', alpha=0.8, edgecolor='#ddd'))
+            color='#78909c', fontfamily='sans-serif',
+            bbox=dict(facecolor='white', alpha=0.92, edgecolor='#cfd8dc',
+                      boxstyle='round,pad=0.3', linewidth=0.7))
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.savefig(output_path, dpi=180, bbox_inches='tight',
+                facecolor='white', pad_inches=0.25)
     plt.close()
     return True
 
 
+# ── Parser ─────────────────────────────────────────────────────────────────
+
+def parse_sch(filepath):
+    """Parse xschem .sch file into wires and components."""
+    wires, components = [], []
+
+    with open(filepath) as f:
+        content = f.read()
+
+    comp_pattern = re.compile(
+        r'C\s+\{([^}]+)\}\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)'
+        r'\s+\{([^}]*)\}',
+        re.DOTALL,
+    )
+    for m in comp_pattern.finditer(content):
+        attrs = m.group(6)
+        name_m = re.search(r'name=(\S+)', attrs)
+        w_m = re.search(r'W=([\d.]+)', attrs)
+        l_m = re.search(r'L=([\d.]+)', attrs)
+        lab_m = re.search(r'lab=(\S+)', attrs)
+        components.append({
+            'symbol': m.group(1),
+            'x': float(m.group(2)), 'y': float(m.group(3)),
+            'rot': int(float(m.group(4))),
+            'mirror': int(float(m.group(5))),
+            'name': name_m.group(1) if name_m else "",
+            'W': w_m.group(1) if w_m else "",
+            'L': l_m.group(1) if l_m else "",
+            'lab': lab_m.group(1) if lab_m else "",
+        })
+
+    for line in content.split('\n'):
+        line = line.strip()
+        if line.startswith('N '):
+            parts = line.split()
+            if len(parts) >= 5:
+                try:
+                    x1, y1 = float(parts[1]), float(parts[2])
+                    x2, y2 = float(parts[3]), float(parts[4])
+                    lab_m = re.search(r'lab=(\S+)', line)
+                    wires.append((x1, y1, x2, y2,
+                                  lab_m.group(1) if lab_m else None))
+                except ValueError:
+                    pass
+
+    return wires, components
+
+
+# ── Main ───────────────────────────────────────────────────────────────────
+
 def main():
     circuits = {
-        "transimpedance_amplifier": "Transimpedance Amplifier (TIA)\nConverts electrode current to voltage",
-        "potentiostat": "Potentiostat Circuit\nControls electrode potential for SWV",
-        "swv_generator": "SWV Waveform Generator\nStaircase + square pulse for voltammetry",
-        "current_mirror": "Cascode Current Mirror\nStable bias currents for all blocks",
+        "current_mirror":
+            "Cascode Current Mirror\nStable bias currents for all blocks",
+        "transimpedance_amplifier":
+            "Transimpedance Amplifier (TIA)\nConverts electrode current to voltage",
+        "potentiostat":
+            "Potentiostat Circuit\nControls electrode potential for SWV",
+        "swv_generator":
+            "SWV Waveform Generator\nStaircase + square pulse for voltammetry",
     }
 
     for name, desc in circuits.items():
@@ -320,7 +361,8 @@ def main():
             print(f"Rendering {name}...")
             ok = render_sch_to_png(sch_path, png_path, title=desc)
             if ok:
-                print(f"  Saved: {png_path} ({os.path.getsize(png_path)} bytes)")
+                sz = os.path.getsize(png_path)
+                print(f"  Saved: {png_path} ({sz:,} bytes)")
             else:
                 print(f"  FAILED")
         else:
